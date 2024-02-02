@@ -20,8 +20,8 @@
 # OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
-"""Public API for the common platform layer base configuration data, this
-gives callers access to the Platform's BaseConfig API and prevents
+"""Public API for the common cluster layer base configuration data, this
+gives callers access to the Cluster's BaseConfig API and prevents
 them from seeing the private implementation of the API.
 
 """
@@ -31,7 +31,7 @@ from .private.config import PrivateBaseConfig
 
 class BaseConfig:
     """BaseConfig class presents operations on the base configuration
-    of the platform layer to callers.
+    of the cluster layer to callers.
 
     """
     def __init__(self):
@@ -41,7 +41,7 @@ class BaseConfig:
         self.private = PrivateBaseConfig()
 
     def get_base_config(self):
-        """Retrieve the base configuration for the platform in the
+        """Retrieve the base configuration for the cluster in the
         form of a python data structure for use in composing and
         overall vTDS configuration.
 
@@ -59,7 +59,7 @@ class BaseConfig:
     def get_test_overlay(self):
         """Retrieve a pre-defined test overlay configuration in the
         form of a python data structure for use in composing vTDS
-        configurations for testing with this platform layer.
+        configurations for testing with this cluster layer.
 
         """
         return self.private.get_test_overlay()

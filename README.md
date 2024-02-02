@@ -1,6 +1,9 @@
 # vtds-cluster-common
+
 The common vTDS Cluster layer plugin implementation
+
 ## Description
+
 This repository contains the implementation of a vTDS Cluster layer
 plugin that should be usable by any vTDS configuration to create a
 vTDS cluster. The plugin includes an implementation of the vTDS

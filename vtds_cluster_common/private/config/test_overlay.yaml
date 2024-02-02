@@ -1,5 +1,1 @@
-cluster:
-  source:
-    index_url: "https://artifactory.algol60.net/artifactory/csm-python-modules/simple"
-    package: vtds-cluster-common
-    version: "latest"
+cluster: {}

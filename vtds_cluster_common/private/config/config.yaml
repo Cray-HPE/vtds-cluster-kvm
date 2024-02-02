@@ -1,21 +1,2 @@
 cluster:
-  source:
-    # This identifies the python module containing the common platform
-    # layer for vTDS, its version and the URL of the pip index. Any
-    # necessary authentication is assumed to be handled by a '.netrc'
-    # or may be injected using ARTIFACTORY_USER and
-    # ARTIFACTORY_PASSWORD environments.
-    #
-    # This is included in the base configuration not to be used from
-    # there, but as an example of what it would look like in your
-    # first system configuration overlay to import this provider layer
-    # implementation into your vTDS system. You must put something
-    # like this in the first system configuration overlay your
-    # deployment uses. Without it there will be no provider layer in
-    # your vTDS build. The layer sources are the only special pieces
-    # of the configuration because they are needed to get the process
-    # going.
-    index_url: "https://artifactory.algol60.net/artifactory/csm-python-modules/simple"
-    package: vtds-cluster-common
-    version: "latest"  # Any version or "latest" to take the latest version
   nodes: {}

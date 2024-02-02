@@ -20,88 +20,21 @@
 # OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
-"""Private layer implementation module for the common cluster  layer base
-configuration.
+"""Private layer implementation module for the layer base configuration.
 
 """
-
-import os.path
-import yaml
-from vtds_base import ContextualError
+from vtds_base import BaseConfiguration
 from . import CONFIG_DIR
 
 
-class PrivateBaseConfig:
+# pylint: disable=too-few-public-methods
+class PrivateBaseConfig(BaseConfiguration):
     """BaseConfig class presents operations on the base configuration
-    of the provider layer to callers.
+    of the layer to callers.
 
     """
     def __init__(self):
         """Constructor
 
         """
-
-    def get_base_config(self):
-        """Retrieve the base configuration for the provider in the
-        form of a python data structure for use in composing and
-        overall vTDS configuration.
-
-        """
-        config = os.path.join(CONFIG_DIR, "config.yaml")
-        try:
-            with open(config, 'r', encoding='UTF-8') as config_stream:
-                return yaml.safe_load(config_stream)
-        except OSError as err:
-            raise ContextualError(
-                "cannot open common cluster base config file  '%s' - %s" % (
-                    config, str(err)
-                )
-            ) from err
-        except yaml.YAMLError as err:
-            raise ContextualError(
-                "error parsing common cluster base config file '%s' - %s" % (
-                    config, str(err)
-                )
-            ) from err
-
-    def get_base_config_text(self):
-        """Retrieve the text of the base configuration file as a text
-        string (UTF-8 encoded) for use in displaying the configuration
-        to users.
-
-        """
-        config = os.path.join(CONFIG_DIR, "config.yaml")
-        try:
-            with open(config, 'r', encoding='UTF-8') as config_stream:
-                return config_stream.read()
-        except OSError as err:
-            raise ContextualError(
-                "cannot open common cluster base config file  '%s' - %s" % (
-                    config, str(err)
-                )
-            ) from err
-
-    def get_test_overlay(self):
-        """Retrieve a pre-defined test overlay configuration in the
-        form of a python data structure for use in composing vTDS
-        configurations for testing with this provider layer.
-
-        """
-        config = os.path.join(CONFIG_DIR, "test_overlay.yaml")
-        try:
-            with open(config, 'r', encoding='UTF-8') as config_stream:
-                return yaml.safe_load(config_stream)
-        except OSError as err:
-            raise ContextualError(
-                "cannot open common cluster test config overlay file "
-                "'%s' - %s" % (
-                    config, str(err)
-                )
-            ) from err
-        except yaml.YAMLError as err:
-            raise ContextualError(
-                "error parsing common cluster test config overlay file "
-                "'%s' - %s" % (
-                    config, str(err)
-                )
-            ) from err
+        super().__init__("common cluster", CONFIG_DIR)
