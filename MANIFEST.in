@@ -23,4 +23,4 @@
 #
 include README.md
 include LICENSE
-recursive-include vtds_cluster_common/private/terragrunt *
+recursive-include vtds_cluster_common *
