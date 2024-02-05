@@ -20,21 +20,46 @@
 # OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
-"""Private layer implementation module for the layer base configuration.
+"""Public API for the ubuntu cluster layer base configuration data, this
+gives callers access to the Cluster's BaseConfig API and prevents
+them from seeing the private implementation of the API.
 
 """
-from vtds_base import BaseConfiguration
-from . import CONFIG_DIR
+
+from .private.config import PrivateBaseConfig
 
 
-# pylint: disable=too-few-public-methods
-class PrivateBaseConfig(BaseConfiguration):
+class BaseConfig:
     """BaseConfig class presents operations on the base configuration
-    of the layer to callers.
+    of the cluster layer to callers.
 
     """
     def __init__(self):
         """Constructor
 
         """
-        super().__init__("common cluster", CONFIG_DIR)
+        self.private = PrivateBaseConfig()
+
+    def get_base_config(self):
+        """Retrieve the base configuration for the cluster in the
+        form of a python data structure for use in composing and
+        overall vTDS configuration.
+
+        """
+        return self.private.get_base_config()
+
+    def get_base_config_text(self):
+        """Retrieve the text of the base configuration file as a text
+        string (UTF-8 encoded) for use in displaying the configuration
+        to users.
+
+        """
+        return self.private.get_base_config_text()
+
+    def get_test_overlay(self):
+        """Retrieve a pre-defined test overlay configuration in the
+        form of a python data structure for use in composing vTDS
+        configurations for testing with this cluster layer.
+
+        """
+        return self.private.get_test_overlay()

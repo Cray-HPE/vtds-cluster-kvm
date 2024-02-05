@@ -1,6 +1,6 @@
-# vtds-cluster-common
+# vtds-cluster-ubuntu
 
-The common vTDS Cluster layer plugin implementation
+The ubuntu vTDS Cluster layer plugin implementation
 
 ## Description
 
