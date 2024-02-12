@@ -1,6 +1,6 @@
-# vtds-cluster-ubuntu
+# vtds-cluster-kvm
 
-The ubuntu vTDS Cluster layer plugin implementation
+The kvm vTDS Cluster layer plugin implementation
 
 ## Description
 
@@ -11,7 +11,7 @@ Cluster layer API and a base configuration. The API implementation can
 be used on top of any combination of vTDS Provider and vTDS Platform
 implementations to manage a vTDS system at the cluster level. The base
 configuration supplied here, if used unchanged, will create a cluster
-of an Allpication layer specified number of Ubuntu Linux VM Virtual
+of an Allpication layer specified number of KVM Linux VM Virtual
 Nodes running on a Virtual Node Interconnect using a VxLAN overlay
 over the top of an Application layer specified set of provider and
 platform supplied Blade Interconnect network underlays. Application

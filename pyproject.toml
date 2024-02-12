@@ -22,7 +22,7 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 #
 [project]
-name = 'vtds-cluster-ubuntu'
+name = 'vtds-cluster-kvm'
 authors = [
     { name = 'Eric Lund', email = 'eric.lund@hpe.com' },
 ]
@@ -35,7 +35,7 @@ classifiers = [
     'Programming Language :: Python :: 3.9',
     'Programming Language :: Python :: 3.10',
 ]
-description = 'Ubuntu Cluster Layer Plugin for the Virtual Test Development System (vTDS) suite'
+description = 'KVM Cluster Layer Plugin for the Virtual Test Development System (vTDS) suite'
 dependencies = [
     'pyyaml~=6.0',
     'vtds_base~=0.0',
@@ -48,7 +48,7 @@ maintainers = [
 requires-python = '>=3.8'
 
 [metadata]
-url = 'https://github.com/Cray-HPE/vtds-cluster-ubuntu'
+url = 'https://github.com/Cray-HPE/vtds-cluster-kvm'
 
 license = { file = 'LICENSE' }
 
@@ -72,8 +72,8 @@ test = [
 
 # Defines which folders belong to our package.
 [tool.setuptools.packages.find]
-include = ['vtds_cluster_ubuntu*', 'vtds_cluster_ubuntu.private*']
-exclude = ['vtds_cluster_ubuntu.tests*']
+include = ['vtds_cluster_kvm*', 'vtds_cluster_kvm.private*']
+exclude = ['vtds_cluster_kvm.tests*']
 
 [tool.setuptools.dynamic]
 readme = { file = ['README.md'], content-type = 'text/markdown' }

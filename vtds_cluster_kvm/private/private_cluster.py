@@ -20,7 +20,7 @@
 # OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
-"""Private layer implementation module for the ubuntu cluster.
+"""Private layer implementation module for the kvm cluster.
 
 """
 
@@ -30,7 +30,7 @@ from vtds_base import (
 
 
 class PrivateCluster:
-    """PrivateCluster class, implements the ubuntu cluster layer
+    """PrivateCluster class, implements the kvm cluster layer
     accessed through the python Cluster API.
 
     """
@@ -52,10 +52,10 @@ class PrivateCluster:
 
         """
         self.prepared = True
-        print("Preparing vtds-cluster-ubuntu")
+        print("Preparing vtds-cluster-kvm")
 
     def validate(self):
-        """Run the terragrunt plan operation on a prepared ubuntu
+        """Run the terragrunt plan operation on a prepared kvm
         cluster layer to make sure that the configuration produces a
         useful result.
 
@@ -64,7 +64,7 @@ class PrivateCluster:
             raise ContextualError(
                 "cannot validate an unprepared cluster, call prepare() first"
             )
-        print("Validating vtds-cluster-ubuntu")
+        print("Validating vtds-cluster-kvm")
 
     def deploy(self):
         """Deploy operation. This drives the deployment of cluster
@@ -76,7 +76,7 @@ class PrivateCluster:
             raise ContextualError(
                 "cannot deploy an unprepared cluster, call prepare() first"
             )
-        print("Deploying vtds-cluster-ubuntu")
+        print("Deploying vtds-cluster-kvm")
 
     def remove(self):
         """Remove operation. This will remove all resources
@@ -87,4 +87,4 @@ class PrivateCluster:
             raise ContextualError(
                 "cannot deploy an unprepared cluster, call prepare() first"
             )
-        print("Removing vtds-cluster-ubuntu")
+        print("Removing vtds-cluster-kvm")

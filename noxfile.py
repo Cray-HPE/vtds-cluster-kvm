@@ -45,7 +45,7 @@ def lint(session):
     """
     run_cmd = [
         'pylint',
-        'vtds_cluster_ubuntu',
+        'vtds_cluster_kvm',
     ]
     if session.python:
         session.install(EXTRA_INDEX, '.[lint]')
@@ -60,7 +60,7 @@ def style(session):
     run_cmd = [
         'pycodestyle',
         '--config=.pycodestyle',
-        'vtds_cluster_ubuntu',
+        'vtds_cluster_kvm',
     ]
  
     if session.python:
