@@ -1,2 +1,238 @@
 cluster:
-  nodes: {}
+  # The 'networks' section defines virtual networks to be deployed to
+  # construct the cluster. The example network shown here is meant to
+  # be illutrative, but will not show up in your configuration. An
+  # appropriate set of network configurations should be built into
+  # overlay configs at the cluster layer.
+  networks:
+    # This is an annotated example network configuration provided to
+    # document how Virtual Networks are defined. It will not be
+    # included in your final configuration.
+    example_network:
+      # The 'delete' field can be specified with this network
+      # in overlay configs to delete this network from the cluster. It
+      # is shown here as true because this network example is not
+      # intended to be functional but as an example. By setting it to
+      # true here, we prevent this network from being in any actual
+      # configuration.
+      delete: true
+      # The name of the Virtual Network
+      network_name: examplenet
+      # List of devices that comprise the network presence on a node
+      devices:
+        # The name of the device on which the network's tunnel appears
+        # on each Virtual Blade
+        tunnel: example
+        # The name of the device on which the network's bridge (used by
+        # Virtual Nodes) appears on each Virtual Blade
+        bridge: br-example
+        # The names of the peer device and interface that give the
+        # device presence on the the blade if any. Set to empty map or
+        # omit to avoid creating a blade presence.
+        local:
+          peer: bl-example-p
+          interface: bl-example
+      # The network tunnel ID of this network, this number must be
+      # unique for each network in the cluster.
+      tunnel_id: 10
+      # The name of the Blade Interconnect network underlying this
+      # Virtual Network
+      blade_interconnect: base-interconnect
+      l3_configs:
+        ipv4:
+          family: AF_INET
+          cidr: 10.254.0.0/16
+          gateway: 10.254.0.1
+          name_servers:
+            - 10.1.1.1
+            - 10.1.1.2
+            - 10.1.1.3
+          dhcp:
+            # DHCP configuration for this network. DHCP configured
+            # here is served by DHCP servers running on Virtual
+            # Blades. The cluster layer configures and starts DHCP on
+            # the Virtual Blades where it is required.
+            #
+            # Setting 'enabled' to 'true' causes this DHCP
+            # configuration to be installed on the host Virtual
+            # Blade. Setting 'enabled' to false declares that either
+            # all Virtual Nodes in the network are statically
+            # configured or that your application provides dynamic
+            # configuration of nodes in this network.
+            enabled: true
+            # The 'dynamic_range' field sets the range of dynamically
+            # assignable addresses in this network.
+            pools:
+              - start: 10.254.1.0
+                end: 10.254.255.254
+            # The 'blade_host' field tells the cluster layer which
+            # Virtual Blade's DHCP server handles this network.  It is
+            # done by blade class and instance number instead of
+            # hostname so that Provider layer specific host naming
+            # conventions are kept in the Provider layer..
+            blade_host:
+              blade_ip: 10.254.0.1
+              blade_class: base-blade
+              blade_instance: 0
+  node_classes:
+    ubuntu_24_04_node:
+      # If 'pure_base_class' is present and 'true' this Virtual Node
+      # class is a template for other node classes. It will not show
+      # up in your cluster on its own, but it can
+      pure_base_class: true
+      # If 'parent_class' is present and true, this Virtual Node class
+      # is derived from another Virtual Node class and values here
+      # simply overlay that class to make a new class.
+      parent_class: null
+      # The 'node_count' field indicates how many nodes of this type
+      # to instantiate on the cluster.
+      node_count: 0
+      # The 'host_blade' settings determine what class of Virtual
+      # Blade hosts Virtual Nodes of this class and maximum number of Virtual
+      # Nodes of this class that may be hosted per Virtual Blade.
+      host_blade:
+        # The 'blade_class' field is the Virtual Blade class on which
+        # Virtual Nodes are placed.
+        blade_class: base-blade  # need to replace this in a derived
+        # class The 'instance_capacity' field indicates the maximum
+        # number of instances of this class that can be hosted on a
+        # given host blade.
+        instance_capacity: 1
+      # The 'virtual_machine' block specifies attributes of the
+      # virtual machine implementing the Virtual Node.
+      virtual_machine:
+        # The 'architecture' field specifies the CPU architecture of
+        # the Virtual Node. If it is null, the architecture of the
+        # underlying host is used.
+        #
+        # NOTE: at present specifying the architecture does nothing.
+        architecture: null
+        # The 'cpu_count' field specifies the number of virtual CPUs the
+        # Virtual Node has.
+        cpu_count: 1
+        # The 'memory_size_mib' field specifies the size in Mibibytes
+        # (MiB - multiples of 1024*1024 bytes) of the Virtual Node
+        # memory.
+        memory_size_mib: 4192
+        # The 'boot_disk' block describes the characteristics of the
+        # boot disk, including the OS image it should be created from.
+        boot_disk:
+          # The 'source_image' field specifies the URL of the OS QCOW
+          # image from which the boot disk for each Virtual Node of
+          # this class should be built.
+          source_image: "http://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img"
+          # The 'disk_size_mb' field specifies the size in megabytes
+          # (MB -- multiples of 1,000,000 bytes) of the disk and file
+          # system to be created from the source image.
+          disk_size_mb: 10000 # 10GB
+          # The target device tells libvirt what disk device to attach
+          # this disk to when creating the Virtual Node. This needs to
+          # be unique among additional disks and the boot disk
+          target_device: vda
+        additional_disks:
+          first_scratch_disk:
+            # The 'source_image' field specifies the URL of an
+            # optional QCOW image from which this disk should be
+            # initialized. If this is null or not provided, the disk
+            # will be an empty disk.
+            source_image: null
+            # The 'disk_size_mb' field specifies the size in megabytes
+            # (MB -- multiples of 1,000,000 bytes) of the disk.
+            disk_size_mb: 100000 # 100GB
+            # The target device tells libvirt what disk device to attach
+            # this disk to when creating the Virtual Node. This needs to
+            # be unique among additional disks and the boot disk
+            target_device: vdb
+            # The 'delete' flag can be specified in a derived class to
+            # delete this additional disk from the derived class. It
+            # is shown here as 'true' so that derived classes won't
+            # inherit an additional disk by default.
+            delete: true
+            # The 'partitions' block specifies the characteristics of
+            # any partitions to be created on the disk.
+            partitions:
+              whole_disk:
+                # The 'partition_number' field identifies the partition
+                # number in the partition table of the disk to which the
+                # partition is assigned.
+                partition_number: 0
+                # The 'partition_size_gb' field specifies the size of
+                # the partition in gigabytes (GB). If it is missing or
+                # null, this partition fills up all remaining space on
+                # the disk once all partitions with specified sizes are
+                # created. There can only be one partition with a null
+                # or missing size.
+                partition_size_gb: null
+                # The 'fs_type' field specifies the type of file system
+                # (if any) to be created on the partition.
+                fs_type: ext4
+                # The 'delete' flag can be specified in a derived
+                # class to delete this partition from the disk. It is
+                # shown here as 'false' for completeness.
+                delete: false
+      node_naming:
+        # This block drives naming of nodes of this type. At a
+        # minimum, this block must contain a 'base_name' field that
+        # specifies the base name for numbered instances of nodes. An
+        # optional 'node_names' list may be specified as well. Virtual
+        # Nodes created from this class will be named first from the
+        # list of node names until that is exhausted, then will be
+        # assigned a 'numbered' node name composed as follows:
+        #
+        #     <base-name>-<instance number>
+        #
+        # for all instances for which a 'node_name' entry does not
+        # exist.
+        base_name: ubuntu-node
+        node_names: []
+      network_interfaces:
+        # The list of network interfaces to nodes of this type and the
+        # configuration for each network connection. These associate
+        # an interface on the Virtual Node with a Virtual Network
+        # defined in the 'networks' section above.
+        my_network:
+          # The 'delete' flag can be specified in a derived class to
+          # delete this interface from the configuration for Virtual
+          # Nodes of the derived class. It is set to 'true' here
+          # because this network interface is here as an example
+          # only. A derived Virtual Node class should define real,
+          # valid network interfaces.
+          delete: true
+          # The 'cluster_network' field identifies the network (from
+          # the networks configuration above) to which this interface
+          # is connected.
+          cluster_network: examplenet
+          # class The 'addr_info' block assigns addresses to the
+          # interface. Each sub-block can define addressing for a
+          # different address family.
+          #
+          # At the moment only AF_INET is implemented.
+          addr_info:
+            ipv4:
+              # Address family identifies the address family to
+              # associate this configuration with in the corresponding
+              # cluster (Layer 3) network definition. It should match
+              # one of the entries there.
+              family: AF_INET
+              # The addressing mode ('mode') may be 'static',
+              # 'reserved' or 'dynamic'.
+              #
+              # Nodes in a 'static' node class have their configuration
+              # written into their netplan configuration and do not
+              # require a DHCP server.  Nodes in a 'reserved' node class
+              # have DHCP reservations containing their
+              # configuration. Nodes in a 'dynamic' node class receive
+              # dynamic configuration from a DHCP server.
+              #
+              # The 'configuration' block for 'static' and 'reserved'
+              # node classes contains configuration shared across all
+              # node instances in the node class that are 'static' or
+              # 'reserved' and a list of IPv4 addresses to be assigned
+              # one-to-one to node instances in that class. If the
+              # number of node instances exceeds the number of
+              # configured IP addresses, all node instances beyond the
+              # number of configured addresses fall back to 'dynamic'
+              # configuration.
+              mode: reserved
+              configuration:
+                addresses: []
