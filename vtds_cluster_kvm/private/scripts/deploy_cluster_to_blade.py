@@ -191,6 +191,32 @@ def read_config(config_file):
         ) from err
 
 
+def workaround_ssh_bug():
+    """There is a bug where the SSH server hangs in key exchange when
+    trying to talk to a Virtual Node that it can reach but that is not
+    on the same Virtual Blade as the client or the. The fix for this
+    is to explicitly configure a key exchange setting to what is
+    supposed to already be its default value in
+    '/etc/ssh/ssh_config'. This function makes sure that setting is in
+    that file.
+
+    """
+    with open('/etc/ssh/ssh_config', 'r', encoding='UTF-8') as ssh_config:
+        config_lines = ssh_config.readlines
+    # Grab the variable names that have settings and are not commented
+    # out in the file.
+    config_vars = [
+        config_line.split()[0]
+        for config_line in config_lines
+        if '#' not in config_line.split()[0]
+    ]
+    if 'KexAlgorithms' not in config_vars:
+        # No setting to address the issue, add one
+        config_lines += '    KexAlgorithms ecdh-sha2-nistp521\n'
+        with open('/etc/ssh/ssh_config', 'w', encoding='UTF-8') as ssh_config:
+            ssh_config.writelines(config_lines)
+
+
 def if_network(interface):
     """Retrieve the network name attached to an interface, raise an
     exception if there is none.
@@ -1042,11 +1068,20 @@ class VirtualNode:
         that the SSH servers will have host keys.
 
         """
+        # The '--append-line' is a workaround for a very weird SSH bug
+        # that makes SSH hang even though the connection works when
+        # going between VMs that are not on the same blade or between
+        # blades on the network and VMs that are on the network but
+        # not on the blade. Supposedly, it does nothing at all except
+        # explicitly set a value that is already the default in the
+        # SSH client, but it makes the problem go away.
         run_cmd(
             'virt-customize',
             [
                 '-a', self.boot_disk_name,
-                '--run-command', 'dpkg-reconfigure openssh-server'
+                '--run-command', 'dpkg-reconfigure openssh-server',
+                '--append-line',
+                '/etc/ssh/ssh_config:    KexAlgorithms ecdh-sha2-nistp521'
             ]
         )
 
@@ -1450,6 +1485,7 @@ def main(argv):
     blade_class = argv[0]
     blade_instance = argv[1]
     config = read_config(argv[2])
+    workaround_ssh_bug()
     network_installer = NetworkInstaller()
     network_installer.remove_virtual_network("default")
     # Only work with node classes that are hosted on our blade
