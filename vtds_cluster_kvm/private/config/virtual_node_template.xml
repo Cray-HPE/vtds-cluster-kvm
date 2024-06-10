@@ -1,0 +1,77 @@
+<domain type="kvm">
+  <name>{{ hostname }}</name>
+  <uuid>{{ uuid }}</uuid>
+  <metadata>
+    <libosinfo:libosinfo xmlns:libosinfo="http://libosinfo.org/xmlns/libvirt/domain/1.0">
+      <libosinfo:os id="http://ubuntu.com/ubuntu/20.04"/>
+    </libosinfo:libosinfo>
+  </metadata>
+  <memory>{{ memsize_kib }}</memory>
+  <currentMemory>{{ memsize_kib }}</currentMemory>
+  <vcpu>{{ cpus }}</vcpu>
+  <os>
+    <type arch="x86_64" machine="q35">hvm</type>
+    <boot dev="hd"/>
+  </os>
+  <features>
+    <acpi/>
+    <apic/>
+  </features>
+  <cpu mode="host-passthrough"/>
+  <clock offset="utc">
+    <timer name="rtc" tickpolicy="catchup"/>
+    <timer name="pit" tickpolicy="delay"/>
+    <timer name="hpet" present="no"/>
+  </clock>
+  <pm>
+    <suspend-to-mem enabled="no"/>
+    <suspend-to-disk enabled="no"/>
+  </pm>
+  <devices>
+    <emulator>/usr/bin/qemu-system-x86_64</emulator>
+    <disk type="file" device="disk">
+      <driver name="qemu" type="qcow2"/>
+      <source file="{{ boot_disk.file_name }}"/>
+      <target dev="{{ boot_disk.target_device }}" bus="virtio"/>
+    </disk>
+    {% for extra_disk in extra_disks %}
+    <disk type="file" device="disk">
+      <driver name="qemu" type="qcow2"/>
+      <source file="{{ extra_disk.file_name }}"/>
+      <target dev="{{ extra_disk.target_device }}" bus="virtio"/>
+    </disk>
+    {% endfor %}
+    <controller type="usb" model="qemu-xhci" ports="15"/>
+    <controller type="pci" model="pcie-root"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+    {% for interface in interfaces %}
+    <interface type="bridge">
+      <source bridge="{{ interface.source_if }}"/>
+      <mac address="{{ interface.mac_addr }}"/>
+      <model type="virtio"/>
+    </interface>
+    {% endfor %}
+    <console type="pty"/>
+    <channel type="unix">
+      <source mode="bind"/>
+      <target type="virtio" name="org.qemu.guest_agent.0"/>
+    </channel>
+    <memballoon model="virtio"/>
+    <rng model="virtio">
+      <backend model="random">/dev/urandom</backend>
+    </rng>
+  </devices>
+</domain>

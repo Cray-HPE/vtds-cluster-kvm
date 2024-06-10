@@ -46,6 +46,7 @@ def lint(session):
     run_cmd = [
         'pylint',
         'vtds_cluster_kvm',
+        'vtds_cluster_kvm/private/scripts'
     ]
     if session.python:
         session.install(EXTRA_INDEX, '.[lint]')

@@ -28,4 +28,14 @@ from os.path import (
     join as path_join,
     dirname
 )
-CONFIG_DIR = path_join(dirname(__file__), "config")
+CONFIG_DIR = path_join(dirname(__file__), 'config')
+DEPLOY_SCRIPT_NAME = 'deploy_cluster_to_blade.py'
+DEPLOY_SCRIPT_PATH = path_join(
+    dirname(__file__),
+    'scripts',
+    DEPLOY_SCRIPT_NAME
+)
+VM_XML_PATH = path_join(
+    CONFIG_DIR,
+    'virtual_node_template.xml'
+)
