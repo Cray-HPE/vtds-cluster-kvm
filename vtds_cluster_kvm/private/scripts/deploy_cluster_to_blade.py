@@ -511,6 +511,33 @@ def instance_range(node_class, blade_instance):
     return (start, end)
 
 
+def open_safe(path, flags):
+    """Safely open a file with a mode that only permits reads and
+    writes by owner. This is used as an 'opener' in cases where the
+    file needs protecting.
+
+    """
+    return os.open(path, flags, 0o600)
+
+
+def install_blade_ssh_keys(key_dir):
+    """Copy the blade SSH keys into place from the uploaded key
+    directory. The public key is already authorized, so no need to do
+    anything to authorized keys.
+
+    """
+    priv = 'id_rsa'
+    pub = 'id_rsa.pub'
+    with open(path_join(key_dir, priv), 'r', encoding='UTF-8') as key_in, \
+         open(path_join(os.sep, 'root', '.ssh', priv), 'w',
+              encoding='UTF-8', opener=open_safe) as key_out:
+        key_out.write(key_in.read())
+    with open(path_join(key_dir, pub), 'r', encoding='UTF-8') as key_in, \
+         open(path_join(os.sep, 'root', '.ssh', pub),
+              encoding='UTF-8') as key_out:
+        key_out.write(key_in.read())
+
+
 class NetworkInstaller:
     """A class to handle declarative creation of virtual networks on a
     blade.
@@ -896,6 +923,10 @@ class VirtualNode:
         disk accordingly.
 
         """
+        run_cmd(
+            'rm',
+            ['-f', name]
+        )
         # pylint: disable=fixme
         # TODO implement partitioning
         source_options = (
@@ -1065,7 +1096,8 @@ class VirtualNode:
 
     def __reconfigure_ssh(self):
         """Run 'dpkg-recofigure openssh-server' on the root disk so
-        that the SSH servers will have host keys.
+        that the SSH servers will have host keys. Also, install root
+        SSH keys and authorizations.
 
         """
         # The '--append-line' is a workaround for a very weird SSH bug
@@ -1081,7 +1113,8 @@ class VirtualNode:
                 '-a', self.boot_disk_name,
                 '--run-command', 'dpkg-reconfigure openssh-server',
                 '--append-line',
-                '/etc/ssh/ssh_config:    KexAlgorithms ecdh-sha2-nistp521'
+                '/etc/ssh/ssh_config:    KexAlgorithms ecdh-sha2-nistp521',
+                '--copy-in', '/root/.ssh:/root'
             ]
         )
 
@@ -1179,10 +1212,6 @@ class VirtualNode:
                 '--root-password', 'password:%s' % root_passwd,
             ]
         )
-
-        def open_safe(path, flags):
-            return os.open(path, flags, 0o600)
-
         # Toss the root password for the node in a root-owned readable
         # only by owner file so we can use it later.
         filename = "%s-passwd.txt" % self.hostname
@@ -1478,13 +1507,15 @@ def main(argv):
     # configuration file used for this deployment.
     if not argv:
         raise UsageError("no arguments provided")
-    if len(argv) < 3:
+    if len(argv) < 4:
         raise UsageError("too few arguments")
-    if len(argv) > 3:
+    if len(argv) > 4:
         raise UsageError("too many arguments")
     blade_class = argv[0]
     blade_instance = argv[1]
     config = read_config(argv[2])
+    key_dir = argv[3]
+    install_blade_ssh_keys(key_dir)
     workaround_ssh_bug()
     network_installer = NetworkInstaller()
     network_installer.remove_virtual_network("default")
@@ -1595,7 +1626,7 @@ def entrypoint(usage_msg, main_func):
 
 if __name__ == '__main__':
     USAGE_MSG = """
-usage: deploy_to_blade blade_type blade_instance config_path
+usage: deploy_to_blade blade_type blade_instance config_path ssh_key_dir
 
 Where:
 
@@ -1605,5 +1636,7 @@ Where:
                    list of blades of this type
     config_path is the path to a YAML file containing the blade
                 configuration to apply.
+    ssh_key_dir is the path to a directory containing the SSH key pair
+                for blades and nodes to use
 """[1:-1]
     entrypoint(USAGE_MSG, main)
