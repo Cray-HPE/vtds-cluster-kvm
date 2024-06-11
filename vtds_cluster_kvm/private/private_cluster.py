@@ -24,7 +24,10 @@
 
 """
 
-from os.path import join as path_join
+from os.path import (
+    join as path_join,
+    dirname
+)
 from random import randint
 from yaml import safe_dump
 
@@ -313,6 +316,19 @@ class PrivateCluster:
         # the deployment script.
         virtual_blades = self.provider_api.get_virtual_blades()
         with virtual_blades.ssh_connect_blades() as connections:
+            # Copy the blade SSH keys out to the virtual blades so we
+            # can use them. Since each virtual blade class may have
+            # its own SSH key, we need to do this one at a time. It
+            # should be quick though.
+            info_msg("copying SSH keys to the blades")
+            for connection in connections.list_connections():
+                blade_type = connection.blade_type()
+                _, priv_path = virtual_blades.blade_ssh_key_paths(blade_type)
+                key_dir = dirname(priv_path)
+                connection.copy_to(
+                    key_dir, '/root/ssh_keys',
+                    recurse=True, logname='copy-ssh-keys-to'
+                )
             info_msg(
                 "copying '%s' to all Virtual Blades at "
                 "'/root/blade_cluster_config.yaml'" % (
@@ -321,7 +337,7 @@ class PrivateCluster:
             )
             connections.copy_to(
                 self.blade_config_path, "/root/blade_cluster_config.yaml",
-                False, "upload-cluster-config-to"
+                recurse=False, logname="upload-cluster-config-to"
             )
             info_msg(
                 "copying '%s' to all Virtual Blades at '/root/%s'" % (
@@ -333,12 +349,11 @@ class PrivateCluster:
                 False, "upload-cluster-deploy-script-to"
             )
             cmd = (
-                "chmod 755 ./%s;"
-                "python3 ./%s {{ blade_type }} {{ instance }} "
-                "blade_cluster_config.yaml" % (
-                    DEPLOY_SCRIPT_NAME,
-                    DEPLOY_SCRIPT_NAME
-                )
+                "chmod 755 ./%s;" % DEPLOY_SCRIPT_NAME +
+                "python3 " +
+                "./%s {{ blade_type }} {{ instance }} " % DEPLOY_SCRIPT_NAME +
+                "blade_cluster_config.yaml "
+                "/root/ssh_keys"
             )
             info_msg("running '%s' on all Virtual Blades" % cmd)
             connections.run_command(cmd, "run-cluster-deploy-script-on")
