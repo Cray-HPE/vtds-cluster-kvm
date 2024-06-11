@@ -321,7 +321,7 @@ class PrivateCluster:
             )
             connections.copy_to(
                 self.blade_config_path, "/root/blade_cluster_config.yaml",
-                "upload-cluster-config-to"
+                False, "upload-cluster-config-to"
             )
             info_msg(
                 "copying '%s' to all Virtual Blades at '/root/%s'" % (
@@ -330,7 +330,7 @@ class PrivateCluster:
             )
             connections.copy_to(
                 DEPLOY_SCRIPT_PATH, "/root/%s" % DEPLOY_SCRIPT_NAME,
-                "upload-cluster-deploy-script-to"
+                False, "upload-cluster-deploy-script-to"
             )
             cmd = (
                 "chmod 755 ./%s;"

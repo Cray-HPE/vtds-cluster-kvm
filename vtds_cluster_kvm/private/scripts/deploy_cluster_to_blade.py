@@ -32,6 +32,7 @@ running on.
 
 """
 import sys
+import re
 import os
 from os import (
     remove as remove_file,
@@ -202,19 +203,18 @@ def workaround_ssh_bug():
 
     """
     with open('/etc/ssh/ssh_config', 'r', encoding='UTF-8') as ssh_config:
-        config_lines = ssh_config.readlines
-    # Grab the variable names that have settings and are not commented
-    # out in the file.
-    config_vars = [
-        config_line.split()[0]
+        config_lines = ssh_config.readlines()
+    # Sort of a grep for the line we are talking about adding here. If
+    # it isn't found we will add it.
+    pattern = re.compile(r'^ *KexAlgorithms +.*$')
+    matches = [
+        config_line
         for config_line in config_lines
-        if '#' not in config_line.split()[0]
+        if pattern.match(config_line[:-1])
     ]
-    if 'KexAlgorithms' not in config_vars:
-        # No setting to address the issue, add one
-        config_lines += '    KexAlgorithms ecdh-sha2-nistp521\n'
-        with open('/etc/ssh/ssh_config', 'w', encoding='UTF-8') as ssh_config:
-            ssh_config.writelines(config_lines)
+    if not matches:
+        with open('/etc/ssh/ssh_config', 'a', encoding='UTF-8') as ssh_config:
+            ssh_config.write("    KexAlgorithms ecdh-sha2-nistp521\n")
 
 
 def if_network(interface):
