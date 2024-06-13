@@ -32,7 +32,6 @@ running on.
 
 """
 import sys
-import re
 import os
 from os import (
     remove as remove_file,
@@ -190,31 +189,6 @@ def read_config(config_file):
                 str(err)
             )
         ) from err
-
-
-def workaround_ssh_bug():
-    """There is a bug where the SSH server hangs in key exchange when
-    trying to talk to a Virtual Node that it can reach but that is not
-    on the same Virtual Blade as the client or the. The fix for this
-    is to explicitly configure a key exchange setting to what is
-    supposed to already be its default value in
-    '/etc/ssh/ssh_config'. This function makes sure that setting is in
-    that file.
-
-    """
-    with open('/etc/ssh/ssh_config', 'r', encoding='UTF-8') as ssh_config:
-        config_lines = ssh_config.readlines()
-    # Sort of a grep for the line we are talking about adding here. If
-    # it isn't found we will add it.
-    pattern = re.compile(r'^ *KexAlgorithms +.*$')
-    matches = [
-        config_line
-        for config_line in config_lines
-        if pattern.match(config_line[:-1])
-    ]
-    if not matches:
-        with open('/etc/ssh/ssh_config', 'a', encoding='UTF-8') as ssh_config:
-            ssh_config.write("    KexAlgorithms ecdh-sha2-nistp521\n")
 
 
 def if_network(interface):
@@ -533,9 +507,126 @@ def install_blade_ssh_keys(key_dir):
               encoding='UTF-8', opener=open_safe) as key_out:
         key_out.write(key_in.read())
     with open(path_join(key_dir, pub), 'r', encoding='UTF-8') as key_in, \
-         open(path_join(os.sep, 'root', '.ssh', pub),
+         open(path_join(os.sep, 'root', '.ssh', pub), 'w',
               encoding='UTF-8') as key_out:
         key_out.write(key_in.read())
+
+
+def get_blade_interface_data():
+    """Collect the interface data from the blade as a data structure.
+
+    """
+    with Popen(
+        ["ip", "-d", "--json", "addr"],
+        stdout=PIPE,
+        stderr=PIPE
+    ) as cmd:
+        return json.loads(cmd.stdout.read())
+
+
+def find_interconnect_interface():
+    """Find the interfase that connects to the blade interconnect on
+    this blade (i.e. not a tunnel, not a bridge, not a peer, but a
+    straight up interface and return its name).
+
+    """
+    if_data = get_blade_interface_data()
+    # Look for interfaces that are 'ether' and not qualified by any other
+    # stuff like bridging or tunelling or whatever.
+    candidates = [
+        interface['ifname']
+        for interface in if_data
+        if interface.get('link_type', '') == 'ether' and
+        interface.get('linkinfo', None) is None
+    ]
+    if len(candidates) > 1:
+        # We should only have one candidate, catch the case where there
+        # are more and error out on them. If this is not a valid assumption
+        # we may, some day, need to go further with this, but for now it
+        # should suffice.
+        raise ContextualError(
+            "internal error: there appears to be more than one pure ethernet "
+            "interface on this Virtual Blade: %s" % str(candidates)
+        )
+    if not candidates:
+        # We should have a candidate. If not there is a problem.
+        raise ContextualError(
+            "internal error: there does not appear to be any pure ethernet "
+            "interface on this Virtual Blade: %s" % str(if_data)
+        )
+    return candidates[0]
+
+
+def find_mtu(link_name):
+    """Given the name of a network link (interface) return the MTU of
+    that link.
+
+    """
+    if_data = get_blade_interface_data()
+    candidates = [
+        link
+        for link in if_data
+        if link.get('ifname', "") == link_name
+    ]
+    if not candidates:
+        raise ContextualError(
+            "internal error: no link named '%s' found in blade interfaces "
+            "cannot retrieve the MTU - %s" % (link_name, if_data)
+        )
+    if len(candidates) > 1:
+        raise ContextualError(
+            "internal error: more than one link named '%s' found in blade "
+            "interfaces cannot discern the MTU - %s" % (
+                link_name, str(if_data)
+            )
+        )
+    mtu = candidates[0].get('mtu', None)
+    if mtu is None:
+        raise ContextualError(
+            "internal error: link '%s' has no MTU "
+            "specified - %s" % str(candidates[0])
+        )
+    return mtu
+
+
+def install_nat_rules(dhcp_networks):
+    """Run through the networks for which this blade is a DHCP server
+    and, if this blade is also the configured gateway for the network,
+    add a NAT rule for this network on the blade to masquerade traffic
+    from that network to external IPs.
+
+    """
+    dest_if = find_interconnect_interface()
+    # Find the CIDRs of all the networks for which the blade's IP
+    # matches the network's gateway IP. These are the ones that need
+    # NAT.
+    nat_cidrs = [
+        find_l3_config(network, 'AF_INET')['cidr']
+        for network in dhcp_networks
+        if find_l3_config(network, 'AF_INET').get(
+            'dhcp', {}
+        ).get(
+            'blade_host', {}
+        ).get('blade_ip', "") == find_l3_config(network, 'AF_INET').get(
+            'gateway', None
+        )
+    ]
+    if nat_cidrs:
+        # We are going to add NAT, so Load the canonically necessary
+        # kernel modules...
+        run_cmd("modprobe", ['ip_tables'])
+        run_cmd("modprobe", ['ip_conntrack'])
+        run_cmd("modprobe", ['ip_conntrack_irc'])
+        run_cmd("modprobe", ['ip_conntrack_ftp'])
+        # Add the NAT rules...
+        for cidr in nat_cidrs:
+            run_cmd(
+                "iptables",
+                [
+                    '-t', 'nat', '-A', 'POSTROUTING', '-s', cidr,
+                    '-o', dest_if, '-j', 'MASQUERADE'
+                ]
+            )
 
 
 class NetworkInstaller:
@@ -549,12 +640,7 @@ class NetworkInstaller:
         easy inspection to determine what is already in place.
 
         """
-        with Popen(
-                ["ip", "-d", "--json", "addr"],
-                stdout=PIPE,
-                stderr=PIPE
-        ) as cmd:
-            if_data = json.loads(cmd.stdout.read())
+        if_data = get_blade_interface_data()
         with Popen(
                 ["bridge", "--json", "fdb"],
                 stdout=PIPE,
@@ -1074,6 +1160,7 @@ class VirtualNode:
                         ),
                         'dhcp6': False,
                         'dhcp4': interface['dhcp4'],
+                        'mtu': interface['mtu'],
                         'match': {
                             'macaddress': interface['mac_addr']
                         }
@@ -1100,21 +1187,13 @@ class VirtualNode:
         SSH keys and authorizations.
 
         """
-        # The '--append-line' is a workaround for a very weird SSH bug
-        # that makes SSH hang even though the connection works when
-        # going between VMs that are not on the same blade or between
-        # blades on the network and VMs that are on the network but
-        # not on the blade. Supposedly, it does nothing at all except
-        # explicitly set a value that is already the default in the
-        # SSH client, but it makes the problem go away.
         run_cmd(
             'virt-customize',
             [
                 '-a', self.boot_disk_name,
                 '--run-command', 'dpkg-reconfigure openssh-server',
-                '--append-line',
-                '/etc/ssh/ssh_config:    KexAlgorithms ecdh-sha2-nistp521',
-                '--copy-in', '/root/.ssh:/root'
+                '--copy-in', '/root/.ssh:/root',
+                '--hostname', self.hostname,
             ]
         )
 
@@ -1128,6 +1207,8 @@ class VirtualNode:
         """
         instance = int(self.instance)
         netname = interface['cluster_network']
+        bridge_name = network_bridge_name(network)
+        mtu = find_mtu(bridge_name)
         ipv4_info = find_addr_info(interface, "AF_INET")
         mac_addrs = node_mac_addrs(interface)
         addresses = ipv4_info.get('configuration', {}).get('addresses', [])
@@ -1166,8 +1247,9 @@ class VirtualNode:
                 ...
             ],
             'netname': netname,
-            'source_if': network_bridge_name(network),
+            'source_if': bridge_name,
             'mac_addr': mac_addrs[instance],
+            'mtu': mtu,
         }
 
     def __make_network_interfaces(self):
@@ -1516,7 +1598,6 @@ def main(argv):
     config = read_config(argv[2])
     key_dir = argv[3]
     install_blade_ssh_keys(key_dir)
-    workaround_ssh_bug()
     network_installer = NetworkInstaller()
     network_installer.remove_virtual_network("default")
     # Only work with node classes that are hosted on our blade
@@ -1551,6 +1632,9 @@ def main(argv):
         network for network in networks
         if blade_instance in dhcp4_server_instances(network, blade_class)
     ]
+    # Install NAT rules for the networks where we are the nexthop.
+    install_nat_rules(dhcp4_networks)
+
     # From the set network interfaces in the selected Node Classes,
     # using the DHCP networks as a guide, compose a list of network
     # interfaces on which DHCP runs as a server from this blade.
