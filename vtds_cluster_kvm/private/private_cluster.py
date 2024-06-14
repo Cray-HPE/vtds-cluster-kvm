@@ -225,18 +225,12 @@ class PrivateCluster:
                 "layer_2",
                 {
                     'family': 'AF_PACKET',
-                    'configuration': {
-                        'addresses': []
-                    }
+                    'addresses': [],
                 }
             )
-            existing_macs = (
-                layer_2
-                .get('configuration')
-                .get('addresses', [])[0:node_count]
-            )
+            existing_macs = layer_2.get('addresses', [])[0:node_count]
             existing_count = len(existing_macs)
-            layer_2['configuration']['addresses'] = existing_macs + [
+            layer_2['addresses'] = existing_macs + [
                 self.__random_mac()
                 for i in range(0, node_count - existing_count)
             ]
