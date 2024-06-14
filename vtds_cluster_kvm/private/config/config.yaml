@@ -223,16 +223,12 @@ cluster:
               # have DHCP reservations containing their
               # configuration. Nodes in a 'dynamic' node class receive
               # dynamic configuration from a DHCP server.
-              #
-              # The 'configuration' block for 'static' and 'reserved'
-              # node classes contains configuration shared across all
-              # node instances in the node class that are 'static' or
-              # 'reserved' and a list of IPv4 addresses to be assigned
+              mode: reserved
+              # The 'addresses' list contains 'static' or
+              # 'reserved' IP addresses to be assigned
               # one-to-one to node instances in that class. If the
               # number of node instances exceeds the number of
               # configured IP addresses, all node instances beyond the
               # number of configured addresses fall back to 'dynamic'
               # configuration.
-              mode: reserved
-              configuration:
-                addresses: []
+              addresses: []

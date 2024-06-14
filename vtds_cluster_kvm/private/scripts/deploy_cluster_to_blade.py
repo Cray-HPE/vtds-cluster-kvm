@@ -32,7 +32,6 @@ running on.
 
 """
 import sys
-import re
 import os
 from os import (
     remove as remove_file,
@@ -192,31 +191,6 @@ def read_config(config_file):
         ) from err
 
 
-def workaround_ssh_bug():
-    """There is a bug where the SSH server hangs in key exchange when
-    trying to talk to a Virtual Node that it can reach but that is not
-    on the same Virtual Blade as the client or the. The fix for this
-    is to explicitly configure a key exchange setting to what is
-    supposed to already be its default value in
-    '/etc/ssh/ssh_config'. This function makes sure that setting is in
-    that file.
-
-    """
-    with open('/etc/ssh/ssh_config', 'r', encoding='UTF-8') as ssh_config:
-        config_lines = ssh_config.readlines()
-    # Sort of a grep for the line we are talking about adding here. If
-    # it isn't found we will add it.
-    pattern = re.compile(r'^ *KexAlgorithms +.*$')
-    matches = [
-        config_line
-        for config_line in config_lines
-        if pattern.match(config_line[:-1])
-    ]
-    if not matches:
-        with open('/etc/ssh/ssh_config', 'a', encoding='UTF-8') as ssh_config:
-            ssh_config.write("    KexAlgorithms ecdh-sha2-nistp521\n")
-
-
 def if_network(interface):
     """Retrieve the network name attached to an interface, raise an
     exception if there is none.
@@ -302,7 +276,7 @@ def node_addrs(network_interface, address_family):
                         address_family, str(network_interface)
                     )
                 )
-            addrs += info.get('configuration', {}).get('addresses', [])
+            addrs += info.get('addresses', [])
     return addrs
 
 
@@ -436,7 +410,7 @@ def find_blade_cidr(network, blade_class, blade_instance):
     blade_host = l3_config.get('dhcp', {}).get('blade_host', {})
     if blade_host.get('blade_class', '') != blade_class:
         return None
-    if str(blade_host.get('blade_instance', '')) != blade_instance:
+    if str(blade_host.get('blade_instance', '')) != str(blade_instance):
         return None
     blade_ip = blade_host.get('blade_ip', None)
     if blade_ip is None:
@@ -492,22 +466,17 @@ def instance_range(node_class, blade_instance):
     that fit on each blade. Return the range as a tuple.
 
     """
+    blade_instance = int(blade_instance)  # coerce to int for local use
     node_count = int(node_class.get('node_count'))
     capacity = int(
         node_class
         .get('host_blade', {})
         .get('instance_capacity', 1)
     )
-    print("blade instance: %d" % blade_instance)
-    print("node count: %d" % node_count)
     start = blade_instance * capacity
-    print("provisional start: %d" % start)
     start = start if start < node_count else node_count
-    print("actual start: %d" % start)
     end = (blade_instance * capacity) + capacity
-    print("provisional end: %d" % end)
     end = end if end < node_count else node_count
-    print("actual end: %d" % end)
     return (start, end)
 
 
@@ -533,9 +502,128 @@ def install_blade_ssh_keys(key_dir):
               encoding='UTF-8', opener=open_safe) as key_out:
         key_out.write(key_in.read())
     with open(path_join(key_dir, pub), 'r', encoding='UTF-8') as key_in, \
-         open(path_join(os.sep, 'root', '.ssh', pub),
+         open(path_join(os.sep, 'root', '.ssh', pub), 'w',
               encoding='UTF-8') as key_out:
         key_out.write(key_in.read())
+
+
+def get_blade_interface_data():
+    """Collect the interface data from the blade as a data structure.
+
+    """
+    with Popen(
+        ["ip", "-d", "--json", "addr"],
+        stdout=PIPE,
+        stderr=PIPE
+    ) as cmd:
+        return json.loads(cmd.stdout.read())
+
+
+def find_interconnect_interface():
+    """Find the interfase that connects to the blade interconnect on
+    this blade (i.e. not a tunnel, not a bridge, not a peer, but a
+    straight up interface and return its name).
+
+    """
+    if_data = get_blade_interface_data()
+    # Look for interfaces that are 'ether' and not qualified by any other
+    # stuff like bridging or tunelling or whatever.
+    candidates = [
+        interface['ifname']
+        for interface in if_data
+        if interface.get('link_type', '') == 'ether' and
+        interface.get('linkinfo', None) is None
+    ]
+    if len(candidates) > 1:
+        # We should only have one candidate, catch the case where there
+        # are more and error out on them. If this is not a valid assumption
+        # we may, some day, need to go further with this, but for now it
+        # should suffice.
+        raise ContextualError(
+            "internal error: there appears to be more than one pure ethernet "
+            "interface on this Virtual Blade: %s" % str(candidates)
+        )
+    if not candidates:
+        # We should have a candidate. If not there is a problem.
+        raise ContextualError(
+            "internal error: there does not appear to be any pure ethernet "
+            "interface on this Virtual Blade: %s" % str(if_data)
+        )
+    return candidates[0]
+
+
+def find_mtu(link_name):
+    """Given the name of a network link (interface) return the MTU of
+    that link.
+
+    """
+    if_data = get_blade_interface_data()
+    candidates = [
+        link
+        for link in if_data
+        if link.get('ifname', "") == link_name
+    ]
+    if not candidates:
+        raise ContextualError(
+            "internal error: no link named '%s' found in blade interfaces "
+            "cannot retrieve the MTU - %s" % (link_name, if_data)
+        )
+    if len(candidates) > 1:
+        raise ContextualError(
+            "internal error: more than one link named '%s' found in blade "
+            "interfaces cannot discern the MTU - %s" % (
+                link_name, str(if_data)
+            )
+        )
+    mtu = candidates[0].get('mtu', None)
+    if mtu is None:
+        raise ContextualError(
+            "internal error: link '%s' has no MTU "
+            "specified - %s" % str(candidates[0])
+        )
+    return mtu
+
+
+def install_nat_rules(dhcp_networks):
+    """Run through the networks for which this blade is a DHCP server
+    and, if this blade is also the configured gateway for the network,
+    add a NAT rule for this network on the blade to masquerade traffic
+    from that network to external IPs.
+
+    """
+    dest_if = find_interconnect_interface()
+    # Find the CIDRs of all the networks for which the blade's IP
+    # matches the network's gateway IP. These are the ones that need
+    # NAT.
+    nat_cidrs = [
+        find_l3_config(network, 'AF_INET')['cidr']
+        for network in dhcp_networks
+        if find_l3_config(network, 'AF_INET').get(
+            'dhcp', {}
+        ).get(
+            'blade_host', {}
+        ).get('blade_ip', "") == find_l3_config(network, 'AF_INET').get(
+            'gateway', None
+        )
+    ]
+    if nat_cidrs:
+        # We are going to add NAT, so Load the canonically necessary
+        # kernel modules...
+        run_cmd("modprobe", ['ip_tables'])
+        run_cmd("modprobe", ['ip_conntrack'])
+        run_cmd("modprobe", ['ip_conntrack_irc'])
+        run_cmd("modprobe", ['ip_conntrack_ftp'])
+        # Clear out any old NAT rules...
+        run_cmd('iptables', ['-t', 'nat', '-F'])
+        # Add the NAT rules...
+        for cidr in nat_cidrs:
+            run_cmd(
+                'iptables',
+                [
+                    '-t', 'nat', '-A', 'POSTROUTING', '-s', cidr,
+                    '-o', dest_if, '-j', 'MASQUERADE'
+                ]
+            )
 
 
 class NetworkInstaller:
@@ -549,12 +637,7 @@ class NetworkInstaller:
         easy inspection to determine what is already in place.
 
         """
-        with Popen(
-                ["ip", "-d", "--json", "addr"],
-                stdout=PIPE,
-                stderr=PIPE
-        ) as cmd:
-            if_data = json.loads(cmd.stdout.read())
+        if_data = get_blade_interface_data()
         with Popen(
                 ["bridge", "--json", "fdb"],
                 stdout=PIPE,
@@ -830,7 +913,7 @@ class VirtualNode:
     """A class for composing, creating and managing Virtual Nodes.
 
     """
-    def __init__(self, node_class, networks, instance):
+    def __init__(self, node_class, networks, blade_instance):
         """Constructor: 'node_class_name' is the name (key) of the
         node class to be used to make the Virtual Node, 'node_class'
         is the node class configuration for the Virtual node, networks
@@ -842,7 +925,7 @@ class VirtualNode:
         self.class_name = node_class['class_name']
         self.node_class = node_class
         self.networks = networks
-        self.instance = instance
+        self.blade_instance = blade_instance
         self.hostname = self.__compute_hostname()
         self.nodeclass_dir = path_join(
             os.sep, 'var', 'local', 'vtds', self.class_name
@@ -887,9 +970,9 @@ class VirtualNode:
             ) from err
         node_names = node_naming.get('node_names', [])
         return (
-            node_names[self.instance]
-            if self.instance < len(node_names)
-            else "%s-%3.3d" % (base_name, int(self.instance) + 1)
+            node_names[self.blade_instance]
+            if self.blade_instance < len(node_names)
+            else "%s-%3.3d" % (base_name, int(self.blade_instance) + 1)
         )
 
     @staticmethod
@@ -1074,6 +1157,7 @@ class VirtualNode:
                         ),
                         'dhcp6': False,
                         'dhcp4': interface['dhcp4'],
+                        'mtu': interface['mtu'],
                         'match': {
                             'macaddress': interface['mac_addr']
                         }
@@ -1100,21 +1184,13 @@ class VirtualNode:
         SSH keys and authorizations.
 
         """
-        # The '--append-line' is a workaround for a very weird SSH bug
-        # that makes SSH hang even though the connection works when
-        # going between VMs that are not on the same blade or between
-        # blades on the network and VMs that are on the network but
-        # not on the blade. Supposedly, it does nothing at all except
-        # explicitly set a value that is already the default in the
-        # SSH client, but it makes the problem go away.
         run_cmd(
             'virt-customize',
             [
                 '-a', self.boot_disk_name,
                 '--run-command', 'dpkg-reconfigure openssh-server',
-                '--append-line',
-                '/etc/ssh/ssh_config:    KexAlgorithms ecdh-sha2-nistp521',
-                '--copy-in', '/root/.ssh:/root'
+                '--copy-in', '/root/.ssh:/root',
+                '--hostname', self.hostname,
             ]
         )
 
@@ -1126,11 +1202,13 @@ class VirtualNode:
         interface in this Virtual Node.
 
         """
-        instance = int(self.instance)
+        blade_instance = int(self.blade_instance)
         netname = interface['cluster_network']
+        bridge_name = network_bridge_name(network)
+        mtu = find_mtu(bridge_name)
         ipv4_info = find_addr_info(interface, "AF_INET")
         mac_addrs = node_mac_addrs(interface)
-        addresses = ipv4_info.get('configuration', {}).get('addresses', [])
+        addresses = ipv4_info.get('addresses', [])
         l3_config = find_l3_config(network, "AF_INET")
         net_length = network_length(l3_config, netname)
         try:
@@ -1144,16 +1222,16 @@ class VirtualNode:
             ) from err
         dhcp4 = (
             mode in ['dynamic', 'reserved'] or
-            instance >= len(addresses)
+            blade_instance >= len(addresses)
         )
         ipv4_addr = (
-            addresses[self.instance]
-            if instance < len(addresses)
+            addresses[self.blade_instance]
+            if blade_instance < len(addresses)
             else None
         )
         ipv4_netlen = (
             net_length
-            if instance < len(addresses)
+            if blade_instance < len(addresses)
             else None
         )
         return {
@@ -1166,8 +1244,9 @@ class VirtualNode:
                 ...
             ],
             'netname': netname,
-            'source_if': network_bridge_name(network),
-            'mac_addr': mac_addrs[instance],
+            'source_if': bridge_name,
+            'mac_addr': mac_addrs[blade_instance],
+            'mtu': mtu,
         }
 
     def __make_network_interfaces(self):
@@ -1308,18 +1387,39 @@ class KeaDHCP4:
     """A class used to compose Kea DHCP4 configuration.
 
     """
-    def __init__(self, networks, network_interfaces):
+    def __init__(self, config, blade_class, blade_instance):
         """Constructor
 
         """
-        self.networks = networks
-        # Get a dictionary of networks by their network names to make
-        # it easier to look up networks by names.
+        # Get a dictionary of networks indexed by name for which this
+        # blade is the DHCP server.
         self.nets_by_name = {
-            net_name(network): network for network in networks
+            net_name(network): network
+            for _, network in config.get('networks', {}).items()
+            if find_l3_config(network, 'AF_INET').get(
+                    'dhcp', {}
+            ).get('blade_host', {}).get('blade_class', None) == blade_class
+            and str(
+                find_l3_config(network, 'AF_INET').get(
+                    'dhcp', {}
+                ).get(
+                    'blade_host', {}
+                )
+                .get('blade_instance', None)
+            ) == blade_instance
         }
-        self.network_interfaces = network_interfaces
-        self.config = self.__compose_config()
+        # Get a list of Virtual Node network interfaces that are
+        # connected to one of the networks for which this blade is a
+        # DHCP server.
+        self.network_interfaces = [
+            interface
+            for _, node_class in config.get('node_classes', {}).items()
+            for _, interface in node_class.get(
+                    'network_interfaces', {}
+            ).items()
+            if if_network(interface) in self.nets_by_name
+        ]
+        self.dhcp4_config = self.__compose_config()
 
     def __compose_reservations(self, interfaces):
         """Compose Kea DHCP4 reservations for network interfaces that have
@@ -1413,7 +1513,7 @@ class KeaDHCP4:
         """
         return [
             netconf
-            for network in self.networks
+            for _, network in self.nets_by_name.items()
             for netconf in self.__compose_network(network)
         ]
 
@@ -1424,25 +1524,29 @@ class KeaDHCP4:
         """
         # Get the list of blade level interface names (i.e. interfaces
         # through which the blade can access the Virtual Network)
-        # associated with all of the networks this blade manages. These
-        # will be the interfaces this instance of DHCP4 listens on.
-        if_names = [
+        # associated with all of the networks this blade serves. These
+        # will be the interfaces this instance of DHCP4 listens on. We
+        # do this using a set comprehension because there are likely
+        # duplicates in the list
+        if_names = {
             self.nets_by_name[
-                if_network(iface)
+                if_network(network_interface)
             ]['devices']['local']['interface']
-            for iface in self.network_interfaces
+            for network_interface in self.network_interfaces
             if (
-                blade_ipv4_ifname(self.nets_by_name[if_network(iface)])
+                blade_ipv4_ifname(
+                    self.nets_by_name[if_network(network_interface)]
+                )
                 is not None
             )
-        ]
+        }
         return {
             'Dhcp4': {
                 'valid-lifetime': 4000,
                 'renew-timer': 1000,
                 'rebind-timer': 2000,
                 'interfaces-config': {
-                    'interfaces': if_names,
+                    'interfaces': list(if_names),  # Make the set a list
                 },
                 'lease-database': {
                     'type': 'memfile',
@@ -1454,13 +1558,23 @@ class KeaDHCP4:
             }
         }
 
+    def list_networks(self):
+        """Return the list of networks in self.nets_by_name which is
+        the list of networks for which this blade is a DHCP server.
+
+        """
+        return [
+            network
+            for _, network in self.nets_by_name.items()
+        ]
+
     def write_config(self, filename):
         """Write out the configuration into the specified filname.
 
         """
         try:
             with open(filename, 'w', encoding='UTF-8') as config_file:
-                json.dump(self.config, config_file, indent=4)
+                json.dump(self.dhcp4_config, config_file, indent=4)
         except OSError as err:
             raise ContextualError(
                 "error creating Kea DHCP4configuration "
@@ -1516,7 +1630,6 @@ def main(argv):
     config = read_config(argv[2])
     key_dir = argv[3]
     install_blade_ssh_keys(key_dir)
-    workaround_ssh_bug()
     network_installer = NetworkInstaller()
     network_installer.remove_virtual_network("default")
     # Only work with node classes that are hosted on our blade
@@ -1545,39 +1658,18 @@ def main(argv):
         for _, network in networks.items()
         if network_connected(network, node_classes)
     ]
-    # Get the list of networks for which this instance is the DHCP4
-    # server.
-    dhcp4_networks = [
-        network for network in networks
-        if blade_instance in dhcp4_server_instances(network, blade_class)
-    ]
-    # From the set network interfaces in the selected Node Classes,
-    # using the DHCP networks as a guide, compose a list of network
-    # interfaces on which DHCP runs as a server from this blade.
-    network_names = [net_name(network) for network in dhcp4_networks]
-    network_interfaces = [
-        network_interface
-        for node_class in node_classes
-        for _, network_interface in node_class.get(
-                'network_interfaces', {}
-        ).items()
-        if network_interface.get('cluster_network', None) in network_names
-    ]
     # Build the virtual networks for the cluster.
     for network in networks:
         network_installer.construct_virtual_network(
-            network,
-            find_blade_cidr(
-                network, blade_class, blade_instance
-            )
+            network, find_blade_cidr(network, blade_class, blade_instance)
         )
+
     # Configure Kea on this blade to serve DHCP4 for the networks
     # served by this blade.
-    kea_dhcp4 = KeaDHCP4(dhcp4_networks, network_interfaces)
-    kea_dhcp4.write_config(
-        "/etc/kea/kea-dhcp4.conf"
-    )
+    kea_dhcp4 = KeaDHCP4(config, blade_class, blade_instance)
+    kea_dhcp4.write_config("/etc/kea/kea-dhcp4.conf")
     kea_dhcp4.restart_server()
+    install_nat_rules(kea_dhcp4.list_networks())
 
     # Deploy the Virtual Nodes to this blade
     #
@@ -1594,7 +1686,7 @@ def main(argv):
         )
         for node_class in node_classes
         for instance in range(
-            *instance_range(node_class, int(blade_instance))
+            *instance_range(node_class, blade_instance)
         )
     ]
     print("nodes: %s" % str(nodes))
@@ -1626,7 +1718,7 @@ def entrypoint(usage_msg, main_func):
 
 if __name__ == '__main__':
     USAGE_MSG = """
-usage: deploy_to_blade blade_type blade_instance config_path ssh_key_dir
+usage: deploy_to_blade blade_class blade_instance config_path ssh_key_dir
 
 Where:
 
