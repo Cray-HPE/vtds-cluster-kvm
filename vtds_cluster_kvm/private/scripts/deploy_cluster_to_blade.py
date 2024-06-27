@@ -237,6 +237,96 @@ def blade_ipv4_cidr(network):
     return network.get('devices', {}).get('local', {}).get('interface', None)
 
 
+def connected_blade_instances(network, blade_class):
+    """Get the list of conencted blade instance numbers for a given
+    network and blade class.
+
+    """
+    l3_config = find_l3_config(network, 'AF_INET')
+    return [
+        int(blade_instance)
+        for blade in l3_config.get('connected_blades', [])
+        if blade.get('blade_class', None) == blade_class
+        for blade_instance in blade.get('blade_instances', [])
+    ]
+
+
+def connected_blade_ipv4s(network, blade_class):
+    """Get the list of conencted blade instance numbers for a given
+    network and blade class.
+
+    """
+    l3_config = find_l3_config(network, 'AF_INET')
+    return [
+        ipv4_addr
+        for blade in l3_config.get('connected_blades', [])
+        if blade.get('blade_class', None) == blade_class
+        for ipv4_addr in blade.get('blade_ips', [])
+    ]
+
+
+def network_blade_connected(network, blade_class, blade_instance):
+    """Determine whether the specified network is connected to the
+    specified instance of the specified blade class. If it is, return
+    True otherwise False.
+
+    """
+    return blade_instance in connected_blade_instances(network, blade_class)
+
+
+def network_blade_ipv4(network, blade_class, blade_instance):
+    """Return the IPv4 address (if any) of the given instance of the
+    given blade class on the given network. If no such address is
+    found, return None.
+
+    """
+    instances = connected_blade_instances(network, blade_class)
+    ipv4s = connected_blade_ipv4s(network, blade_class)
+    count = len(instances) if len(instances) >= len(ipv4s) else len(ipv4s)
+    candidates = [
+        ipv4s[i] for i in range(0, count)
+        if blade_instance == instances[i]
+    ]
+    return candidates[0] if candidates else None
+
+
+def network_ipv4_gateway(network):
+    """Return the network IPv4 gateway address if there is one for the
+    specified network. If no gateway is configured, return None.
+
+    """
+    return find_l3_config(network, 'AF_INET').get('gateway', None)
+
+
+def is_nat_router(network, blade_class, blade_instance):
+    """Determine whether the specified instance of the specified
+    virtual blade class is the NAT router for the specified virtual
+    network (the NAT router for a virtual network is whatever blade
+    hosts the gateway for that network).
+
+    """
+    blade_ipv4 = network_blade_ipv4(network, blade_class, blade_instance)
+    gateway = network_ipv4_gateway(network)
+    return blade_ipv4 and gateway and blade_ipv4 == gateway
+
+
+def is_dhcp_server(network, blade_class, blade_instance):
+    """Determine whether the specified instance of the specified
+    virtual blade class is the NAT router for the specified virtual
+    network (the NAT router for a virtual network is whatever blade
+    hosts the gateway for that network).
+
+    """
+    l3_config = find_l3_config(network, 'AF_INET')
+    candidates =  [
+        blade
+        for blade in l3_config.get('connected_blades', [])
+        if blade.get('blade_class', None) == blade_class and
+        blade.get('dhcp_server_instance', None) == blade_instance
+    ]
+    return len(candidates) > 0
+
+
 def network_connected(network, node_classes):
     """Determine whether the specified network is connected to an
     interface in any of the specified node classes. If it is return
@@ -294,28 +384,6 @@ def node_ipv4_addrs(network_interface):
 
     """
     return node_addrs(network_interface, 'AF_INET')
-
-
-def dhcp4_server_instances(network, blade_class):
-    """Find the DHCP4 server node instances represented in all of
-    the L3 configurations that have DHCP and are AF_INET
-    configurations on the specified network.
-
-    """
-    l3_config = find_l3_config(network, "AF_INET")
-    return (
-        [str(l3_config['dhcp']['blade_host']['blade_instance'])]
-        if (
-            l3_config.get('dhcp', {}).get('enabled', False) and
-            l3_config.get('dhcp', {}).get('blade_host', {}).get(
-                'blade_class', None
-            ) == blade_class and
-            'blade_instance' in l3_config.get('dhcp', {}).get(
-                'blade_host', {}
-            )
-        )
-        else []
-    )
 
 
 def find_addr_info(interface, family):
@@ -398,38 +466,26 @@ def network_length(l3_config, netname):
 def find_blade_cidr(network, blade_class, blade_instance):
     """Find the IPv4 address/CIDR to use on the network interface for
     a specified network. The 'network' argument describes the network
-    of interest, and 'network_interfaces' is the list of relevant
-    network interfaces from the blade we are currently running on.
+    of interest, 'blade_class' and 'blade_instance' identify the blade
+    we are running on. If there is no IPv4 address for this blade,
+    then return None.
 
     """
-    netname = net_name(network)
     l3_config = find_l3_config(network, "AF_INET")
-    # If there is no configuration for DHCP servers, or this is not
-    # the blade that serves DHCP on the subnet, we are done and shoudl
-    # return None.
-    blade_host = l3_config.get('dhcp', {}).get('blade_host', {})
-    if blade_host.get('blade_class', '') != blade_class:
-        return None
-    if str(blade_host.get('blade_instance', '')) != str(blade_instance):
-        return None
-    blade_ip = blade_host.get('blade_ip', None)
-    if blade_ip is None:
-        raise ContextualError(
-            "configuration error: no 'blade_ip' is provided on the host "
-            "where DHCP is served for the Virtual Network "
-            " named '%s'" % netname
-        )
-    net_length = network_length(l3_config, netname)
-    return '/'.join((blade_ip, net_length))
+    blade_ip = network_blade_ipv4(network, blade_class, blade_instance)
+    return (
+        '/'.join((blade_ip, network_length(l3_config, net_name(network))))
+        if blade_ip is not None else None
+    )
 
 
-def network_tunnel_name(network):
-    """Get or construct the tunnel name for the network configuration
-    found in 'network'.
+def network_layer_2_name(network):
+    """Get or construct the layer 2 interface name for the network
+    configuration found in 'network'.
 
     """
     network_name = net_name(network)
-    return network.get('devices', {}).get('tunnel', network_name)
+    return network.get('devices', {}).get('layer_2', network_name)
 
 
 def network_bridge_name(network):
@@ -437,8 +493,10 @@ def network_bridge_name(network):
     found in 'network'.
 
     """
-    tunnel_name = network_tunnel_name(network)
-    return network.get('devices', {}).get('bridge_name', "br-%s" % tunnel_name)
+    layer_2_name = network_layer_2_name(network)
+    return network.get('devices', {}).get(
+        'bridge_name', "br-%s" % layer_2_name
+    )
 
 
 def node_connected_networks(node_class, networks):
@@ -512,7 +570,7 @@ def get_blade_interface_data():
 
     """
     with Popen(
-        ["ip", "-d", "--json", "addr"],
+        ['ip', '-d', '--json', 'addr'],
         stdout=PIPE,
         stderr=PIPE
     ) as cmd:
@@ -520,7 +578,7 @@ def get_blade_interface_data():
 
 
 def find_interconnect_interface():
-    """Find the interfase that connects to the blade interconnect on
+    """Find the interface that connects to the blade interconnect on
     this blade (i.e. not a tunnel, not a bridge, not a peer, but a
     straight up interface and return its name).
 
@@ -584,7 +642,22 @@ def find_mtu(link_name):
     return mtu
 
 
-def install_nat_rules(dhcp_networks):
+def prepare_nat():
+    """Prepare the blade for installation of NAT rules (load kernel
+    modules and clear out any stale NAT rules).
+
+    """
+    # We are going to add NAT, so Load the canonically necessary
+    # kernel modules...
+    run_cmd('modprobe', ['ip_tables'])
+    run_cmd('modprobe', ['ip_conntrack'])
+    run_cmd('modprobe', ['ip_conntrack_irc'])
+    run_cmd('modprobe', ['ip_conntrack_ftp'])
+    # Clear out any old NAT rules...
+    run_cmd('iptables', ['-t', 'nat', '-F'])
+
+
+def install_nat_rule(network):
     """Run through the networks for which this blade is a DHCP server
     and, if this blade is also the configured gateway for the network,
     add a NAT rule for this network on the blade to masquerade traffic
@@ -592,38 +665,14 @@ def install_nat_rules(dhcp_networks):
 
     """
     dest_if = find_interconnect_interface()
-    # Find the CIDRs of all the networks for which the blade's IP
-    # matches the network's gateway IP. These are the ones that need
-    # NAT.
-    nat_cidrs = [
-        find_l3_config(network, 'AF_INET')['cidr']
-        for network in dhcp_networks
-        if find_l3_config(network, 'AF_INET').get(
-            'dhcp', {}
-        ).get(
-            'blade_host', {}
-        ).get('blade_ip', "") == find_l3_config(network, 'AF_INET').get(
-            'gateway', None
-        )
-    ]
-    if nat_cidrs:
-        # We are going to add NAT, so Load the canonically necessary
-        # kernel modules...
-        run_cmd("modprobe", ['ip_tables'])
-        run_cmd("modprobe", ['ip_conntrack'])
-        run_cmd("modprobe", ['ip_conntrack_irc'])
-        run_cmd("modprobe", ['ip_conntrack_ftp'])
-        # Clear out any old NAT rules...
-        run_cmd('iptables', ['-t', 'nat', '-F'])
-        # Add the NAT rules...
-        for cidr in nat_cidrs:
-            run_cmd(
-                'iptables',
-                [
-                    '-t', 'nat', '-A', 'POSTROUTING', '-s', cidr,
-                    '-o', dest_if, '-j', 'MASQUERADE'
-                ]
-            )
+    cidr = find_l3_config(network, 'AF_INET')['cidr']
+    run_cmd(
+        'iptables',
+        [
+            '-t', 'nat', '-A', 'POSTROUTING', '-s', cidr,
+            '-o', dest_if, '-j', 'MASQUERADE'
+        ]
+    )
 
 
 class NetworkInstaller:
@@ -639,7 +688,7 @@ class NetworkInstaller:
         """
         if_data = get_blade_interface_data()
         with Popen(
-                ["bridge", "--json", "fdb"],
+                ['bridge', '--json', 'fdb'],
                 stdout=PIPE,
                 stderr=PIPE
         ) as cmd:
@@ -662,7 +711,7 @@ class NetworkInstaller:
 
         """
         with Popen(
-                ["virsh", "net-list", "--name"],
+                ['virsh', 'net-list', '--name'],
                 stdout=PIPE,
                 stderr=PIPE
         ) as cmd:
@@ -677,9 +726,14 @@ class NetworkInstaller:
 
         """
         self.interfaces = self._get_interfaces()
-        self.vxlans = {
+        self.veths = {
+            key: val for key, val in self.interfaces.items()
+            if 'linkinfo' in val and val['linkinfo']['info_kind'] == 'veth'
+        }
+        self.virtuals = {
             key: val for key, val in self.interfaces.items()
             if 'linkinfo' in val and val['linkinfo']['info_kind'] == 'vxlan'
+            or 'linkinfo' in val and val['linkinfo']['info_kind'] == 'veth'
         }
         self.bridges = {
             key: val for key, val in self.interfaces.items()
@@ -689,10 +743,10 @@ class NetworkInstaller:
 
     def _check_conflict(self, name, bridge_name):
         """Look for conflicting existing interfaces for the named
-        tunnel and bridge and error if they are found.
+        layer_2 and bridge and error if they are found.
 
         """
-        if name in self.interfaces and name not in self.vxlans:
+        if name in self.interfaces and name not in self.virtuals:
             raise ContextualError(
                 "attempting to create virtual network '%s' but conflicting "
                 "non-virtual network interface already exists on blade" % name
@@ -705,12 +759,12 @@ class NetworkInstaller:
             )
 
     def _find_underlay(self, endpoint_ips):
-        """All virtual networks have a tunnel endpoint on the blades
-        where they are used, so they all have a network device used as
-        the point of access to the underlay network which determines
-        that tunnel endpoint. This function finds the device and
-        endpoint IP on the current blade that will be used to connect
-        to the virtual network.
+        """All non-blade-local virtual networks have a tunnel endpoint
+        on the blades where they are used, so they all have a network
+        device used as the point of access to the underlay network
+        which determines that tunnel endpoint. This function finds the
+        device and endpoint IP on the current blade that will be used
+        to connect to the virtual network.
 
         """
         for intf, if_desc in self.interfaces.items():
@@ -728,85 +782,92 @@ class NetworkInstaller:
         """Remove an interface (link) specified by the interface name.
 
         """
-        run_cmd("ip", ["link", "del", if_name])
+        run_cmd('ip', ['link', 'del', if_name])
 
     @staticmethod
-    def add_new_tunnel(tunnel_name, bridge_name, vxlan_id, device):
-        """Set up a VxLAN tunnel ingress using the supplied VxLAN ID,
-        and set up the bridge interface mastering the tunnel onto
-        which IPs and VMs can be bound.
+    def add_new_network(layer_2_name, bridge_name, vxlan_id, device):
+        """Set up a the blade-level network infrastructure including a
+        layer 2 device, which can be either a blade-local virtual
+        ethernet or a VxLAN tunnel ingress using the supplied VxLAN
+        ID, and set up the bridge interface mastering the layer_2
+        deviceonto which IPs and VMs can be bound. If 'vxlan_id' is
+        None, assume this is a blade-local network.
 
         """
-        # Make the Tunnel Endpoint
-        run_cmd(
-            "ip",
+        # Make the L2 Endpoint
+        args = (
             [
-                "link", "add", tunnel_name,
-                "type", "vxlan",
-                "id", vxlan_id,
-                "dev", device,
-                "dstport", "4789",
+                'link', 'add', layer_2_name,
+                'type', 'vxlan',
+                'id', vxlan_id,
+                'dev', device,
+                'dstport', '4789',
+            ] if vxlan_id is not None
+            else [
+                'link', 'add', layer_2_name,
+                'type', 'veth',
             ]
         )
+        run_cmd('ip', args)
         # Make the bridge device
         run_cmd(
-            "ip",
-            ["link", "add", bridge_name, "type", "bridge"]
+            'ip',
+            ['link', 'add', bridge_name, 'type', 'bridge']
         )
-        # Master the tunnel under the bridge
+        # Master the layer 2 device under the bridge
         run_cmd(
-            "ip",
-            ["link", "set", tunnel_name, "master", bridge_name]
+            'ip',
+            ['link', 'set', layer_2_name, 'master', bridge_name]
         )
         # Turn the bridge on
         run_cmd(
-            "ip",
-            ["link", "set", bridge_name, "up"]
+            'ip',
+            ['link', 'set', bridge_name, 'up']
         )
-        # Turn the tunnel on
+        # Turn the layer 2 device on
         run_cmd(
-            "ip",
-            ["link", "set", tunnel_name, "up"]
+            'ip',
+            ['link', 'set', layer_2_name, 'up']
         )
 
     @staticmethod
     def add_blade_interface(peer_name, ifname, bridge_name, blade_cidr):
-        """Set up local connectivity a tunnel on a blade using a peer
-        and paired interface to allow the bridge to join in the
-        Virtual Network.
+        """Set up local connectivity to a Virtual Network on a blade
+        using a peer and paired interface to allow the bridge to join
+        in the Virtual Network.
 
         """
         if peer_name is None or ifname is None:
             return
         # Create the interface / peer name
         run_cmd(
-            "ip",
+            'ip',
             [
-                "link", "add", ifname,
-                "type", "veth",
-                "peer", "name", peer_name,
+                'link', 'add', ifname,
+                'type', 'veth',
+                'peer', 'name', peer_name,
             ]
         )
         # Master the peer under the bridge
         run_cmd(
-            "ip",
-            ["link", "set", peer_name, "master", bridge_name]
+            'ip',
+            ['link', 'set', peer_name, 'master', bridge_name]
         )
         # Turn on the peer
         run_cmd(
-            "ip",
-            ["link", "set", peer_name, "up"]
+            'ip',
+            ['link', 'set', peer_name, 'up']
         )
         # Turn on the interface
         run_cmd(
-            "ip",
-            ["link", "set", ifname, "up"]
+            'ip',
+            ['link', 'set', ifname, 'up']
         )
         if blade_cidr:
             # Add IP address to the interface
             run_cmd(
-                "ip",
-                ["addr", "add", blade_cidr, "dev", ifname]
+                'ip',
+                ['addr', 'add', blade_cidr, 'dev', ifname]
             )
 
     @staticmethod
@@ -821,17 +882,17 @@ class NetworkInstaller:
         ]
         for ip_addr in remote_ips:
             run_cmd(
-                "bridge",
+                'bridge',
                 [
-                    "fdb", "append", "to", "00:00:00:00:00:00",
-                    "dst", ip_addr,
-                    "dev", tunnel_name,
+                    'fdb', 'append', 'to', '00:00:00:00:00:00',
+                    'dst', ip_addr,
+                    'dev', tunnel_name,
                 ],
             )
 
     def add_virtual_network(self, network_name, bridge_name):
         """Add a network to libvirt that is bound onto the bridge that
-        is mastering the tunnel for that network.
+        is mastering the layer 2 devicefor that network.
 
         """
         net_desc = """
@@ -845,9 +906,9 @@ class NetworkInstaller:
         with NamedTemporaryFile(mode='w+', encoding='UTF-8') as tmpfile:
             tmpfile.write(net_desc)
             tmpfile.flush()
-            run_cmd("virsh", ["net-define", tmpfile.name])
-        run_cmd("virsh", ["net-start", network_name])
-        run_cmd("virsh", ["net-autostart", network_name])
+            run_cmd('virsh', ['net-define', tmpfile.name])
+        run_cmd('virsh', ['net-start', network_name])
+        run_cmd('virsh', ['net-autostart', network_name])
         self.vnets.append(network_name)
 
     def remove_virtual_network(self, network_name):
@@ -857,18 +918,20 @@ class NetworkInstaller:
         if network_name not in self.vnets:
             # Don't remove it if it isn't there
             return
-        run_cmd("virsh", ["net-destroy", network_name])
-        run_cmd("virsh", ["net-undefine", network_name])
+        run_cmd('virsh', ['net-destroy', network_name])
+        run_cmd('virsh', ['net-undefine', network_name])
         self.vnets.remove(network_name)
 
     def construct_virtual_network(self, network, blade_cidr):
-        """Create a VxLAN tunnel and bridge for a virtual network,
-        populate its layer2 mesh (among the blades where it can be
-        seen) and add it to the libvirt list of networks on the blade.
+        """Create a layer 2 device (VxLAN Tunnel or 'veth' device) and
+        bridge for a virtual network, populate its layer2 mesh (among
+        the blades where it can be seen) and add it to the libvirt
+        list of networks on the blade.
 
         """
+        blade_local = network.get('blade_local', False)
         network_name = net_name(network)
-        tunnel_name = network_tunnel_name(network)
+        layer_2_name = network_layer_2_name(network)
         bridge_name = network_bridge_name(network)
         blade_peer_name = None
         blade_ifname = None
@@ -890,18 +953,32 @@ class NetworkInstaller:
                     "Virtual Network '%s' local block is missing "
                     "'interface' element" % network_name
                 )
-        vxlan_id = str(network.get('tunnel_id', "0"))
-        endpoint_ips = network.get('endpoint_ips', [])
-        self._check_conflict(tunnel_name, bridge_name)
-        if tunnel_name in self.interfaces:
-            self.remove_link(tunnel_name)
+        vxlan_id = str(network.get('tunnel_id', None))
+        if not blade_local and vxlan_id is None:
+            raise ContextualError(
+                "Non-blade local virtual network '%s' has no tunnel ID" %
+                network_name
+            )
+        # Drop any configured VxLAN ID if the network is blade-local
+        if blade_local:
+            vxlan_id = None
+        endpoint_ips = network.get(
+            'endpoint_ips', []
+        ) if not blade_local else []
+        self._check_conflict(layer_2_name, bridge_name)
+        if layer_2_name in self.interfaces:
+            self.remove_link(layer_2_name)
         if bridge_name in self.interfaces:
             self.remove_link(bridge_name)
         if blade_peer_name in self.interfaces:
             self.remove_link(blade_peer_name)
-        device, local_ip_addr = self._find_underlay(endpoint_ips)
-        self.add_new_tunnel(tunnel_name, bridge_name, vxlan_id, device)
-        self.connect_endpoints(tunnel_name, endpoint_ips, local_ip_addr)
+        device, local_ip_addr = self._find_underlay(
+            endpoint_ips
+        ) if not blade_local else (None, None)
+        self.add_new_network(layer_2_name, bridge_name, vxlan_id, device)
+        # Blade local networks will have no endpoints, so calling this
+        # is harmless in that case.
+        self.connect_endpoints(layer_2_name, endpoint_ips, local_ip_addr)
         self.add_blade_interface(
             blade_peer_name, blade_ifname, bridge_name, blade_cidr
         )
@@ -913,7 +990,7 @@ class VirtualNode:
     """A class for composing, creating and managing Virtual Nodes.
 
     """
-    def __init__(self, node_class, networks, blade_instance):
+    def __init__(self, node_class, networks, node_instance):
         """Constructor: 'node_class_name' is the name (key) of the
         node class to be used to make the Virtual Node, 'node_class'
         is the node class configuration for the Virtual node, networks
@@ -925,7 +1002,7 @@ class VirtualNode:
         self.class_name = node_class['class_name']
         self.node_class = node_class
         self.networks = networks
-        self.blade_instance = blade_instance
+        self.node_instance = node_instance
         self.hostname = self.__compute_hostname()
         self.nodeclass_dir = path_join(
             os.sep, 'var', 'local', 'vtds', self.class_name
@@ -970,9 +1047,9 @@ class VirtualNode:
             ) from err
         node_names = node_naming.get('node_names', [])
         return (
-            node_names[self.blade_instance]
-            if self.blade_instance < len(node_names)
-            else "%s-%3.3d" % (base_name, int(self.blade_instance) + 1)
+            node_names[self.node_instance]
+            if self.node_instance < len(node_names)
+            else "%s-%3.3d" % (base_name, int(self.node_instance) + 1)
         )
 
     @staticmethod
@@ -1202,7 +1279,7 @@ class VirtualNode:
         interface in this Virtual Node.
 
         """
-        blade_instance = int(self.blade_instance)
+        node_instance = int(self.node_instance)
         netname = interface['cluster_network']
         bridge_name = network_bridge_name(network)
         mtu = find_mtu(bridge_name)
@@ -1222,16 +1299,16 @@ class VirtualNode:
             ) from err
         dhcp4 = (
             mode in ['dynamic', 'reserved'] or
-            blade_instance >= len(addresses)
+            node_instance >= len(addresses)
         )
         ipv4_addr = (
-            addresses[self.blade_instance]
-            if blade_instance < len(addresses)
+            addresses[self.node_instance]
+            if node_instance < len(addresses)
             else None
         )
         ipv4_netlen = (
             net_length
-            if blade_instance < len(addresses)
+            if node_instance < len(addresses)
             else None
         )
         return {
@@ -1245,7 +1322,7 @@ class VirtualNode:
             ],
             'netname': netname,
             'source_if': bridge_name,
-            'mac_addr': mac_addrs[blade_instance],
+            'mac_addr': mac_addrs[node_instance],
             'mtu': mtu,
         }
 
@@ -1396,17 +1473,7 @@ class KeaDHCP4:
         self.nets_by_name = {
             net_name(network): network
             for _, network in config.get('networks', {}).items()
-            if find_l3_config(network, 'AF_INET').get(
-                    'dhcp', {}
-            ).get('blade_host', {}).get('blade_class', None) == blade_class
-            and str(
-                find_l3_config(network, 'AF_INET').get(
-                    'dhcp', {}
-                ).get(
-                    'blade_host', {}
-                )
-                .get('blade_instance', None)
-            ) == blade_instance
+            if is_dhcp_server(network, blade_class, blade_instance)
         }
         # Get a list of Virtual Node network interfaces that are
         # connected to one of the networks for which this blade is a
@@ -1551,22 +1618,12 @@ class KeaDHCP4:
                 'lease-database': {
                     'type': 'memfile',
                     'persist': True,
-                    'name': "/var/lib/kea/kea-leases4.csv",
+                    'name': '/var/lib/kea/kea-leases4.csv',
                     'lfc-interval': 1800,
                 },
                 'subnet4': self.__compose_subnets(),
             }
         }
-
-    def list_networks(self):
-        """Return the list of networks in self.nets_by_name which is
-        the list of networks for which this blade is a DHCP server.
-
-        """
-        return [
-            network
-            for _, network in self.nets_by_name.items()
-        ]
 
     def write_config(self, filename):
         """Write out the configuration into the specified filname.
@@ -1626,7 +1683,13 @@ def main(argv):
     if len(argv) > 4:
         raise UsageError("too many arguments")
     blade_class = argv[0]
-    blade_instance = argv[1]
+    try:
+        blade_instance = int(argv[1])
+    except ValueError as err:
+        raise UsageError(
+            "invalid 'blade-instance' value ('%s') should be an "
+            "integer value" % argv[1]
+        ) from err
     config = read_config(argv[2])
     key_dir = argv[3]
     install_blade_ssh_keys(key_dir)
@@ -1657,19 +1720,23 @@ def main(argv):
         network
         for _, network in networks.items()
         if network_connected(network, node_classes)
+        or network_blade_connected(network, blade_class, blade_instance)
     ]
+    # Set up to install fresh NAT rules...
+    prepare_nat()
     # Build the virtual networks for the cluster.
     for network in networks:
         network_installer.construct_virtual_network(
             network, find_blade_cidr(network, blade_class, blade_instance)
         )
+        if is_nat_router(network, blade_class, blade_instance):
+            install_nat_rule(network)
 
     # Configure Kea on this blade to serve DHCP4 for the networks
     # served by this blade.
     kea_dhcp4 = KeaDHCP4(config, blade_class, blade_instance)
     kea_dhcp4.write_config("/etc/kea/kea-dhcp4.conf")
     kea_dhcp4.restart_server()
-    install_nat_rules(kea_dhcp4.list_networks())
 
     # Deploy the Virtual Nodes to this blade
     #
