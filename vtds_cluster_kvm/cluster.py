@@ -77,3 +77,17 @@ class LayerAPI:
 
         """
         self.private.remove()
+
+    def get_virtual_nodes(self):
+        """Return a VirtualNodes object containing all of the
+        available non-pure-base-class Virtual Nodes.
+
+        """
+        return self.private.get_virtual_nodes()
+
+    def get_virtual_networks(self):
+        """Return a VirtualNetworks object containing all the
+        available VirtualNetworks.
+
+        """
+        return self.private.get_virtual_networks()
