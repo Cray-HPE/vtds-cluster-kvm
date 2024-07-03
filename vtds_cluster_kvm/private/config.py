@@ -37,4 +37,4 @@ class PrivateBaseConfig(BaseConfiguration):
         """Constructor
 
         """
-        super().__init__("kvm cluster", CONFIG_DIR)
+        BaseConfiguration.__init__(self, "kvm cluster", CONFIG_DIR)
