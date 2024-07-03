@@ -44,6 +44,10 @@ from . import (
     VM_XML_PATH
 )
 from .common import Common
+from .api_objects import (
+    PrivateVirtualNodes,
+    PrivateVirtualNetworks
+)
 
 
 class PrivateCluster:
@@ -87,7 +91,7 @@ class PrivateCluster:
             ) from err
         blade_classes = network.get('connected_blade_classes', None)
         blade_classes = (
-            virtual_blades.blade_types()
+            virtual_blades.blade_classes()
             if blade_classes is None
             else blade_classes
         )
@@ -234,7 +238,7 @@ class PrivateCluster:
     def __add_host_blade_net(self):
         """Merge the blade host networks into the config making sure
         every Virtual Node instance is connected to a blade host
-        network and has a static IP addres, and making sure that each
+        network and has a static IP address, and making sure that each
         Virtual Blade is connected to its blade host network and has
         an IP address.
 
@@ -257,8 +261,8 @@ class PrivateCluster:
                 "configuration error: no 'host_blade_network' defined in "
                 "the cluster configuration"
             )
-        # Connect the host_blade_network to all blades of all types.
-        blade_classes = virtual_blades.blade_types()
+        # Connect the host_blade_network to all blades of all classes.
+        blade_classes = virtual_blades.blade_classes()
         l3_config = self.__get_l3_config(host_blade_network, 'AF_INET')
         l3_config['connected_blades'] = [
             {
@@ -279,7 +283,7 @@ class PrivateCluster:
         # Add the host blade network to the set of Virtual Networks so
         # it will be used.
         networks[netname] = host_blade_network
-        # Connect all the Virtual Node classes of all types to the
+        # Connect all the Virtual Node classes of all classes to the
         # host_blade_network
         for _, node_class in node_classes.items():
             host_blade_interface = {
@@ -460,8 +464,8 @@ class PrivateCluster:
             # should be quick though.
             info_msg("copying SSH keys to the blades")
             for connection in connections.list_connections():
-                blade_type = connection.blade_type()
-                _, priv_path = virtual_blades.blade_ssh_key_paths(blade_type)
+                blade_class = connection.blade_class()
+                _, priv_path = virtual_blades.blade_ssh_key_paths(blade_class)
                 key_dir = dirname(priv_path)
                 connection.copy_to(
                     key_dir, '/root/ssh_keys',
@@ -489,7 +493,7 @@ class PrivateCluster:
             cmd = (
                 "chmod 755 ./%s;" % DEPLOY_SCRIPT_NAME +
                 "python3 " +
-                "./%s {{ blade_type }} {{ instance }} " % DEPLOY_SCRIPT_NAME +
+                "./%s {{ blade_class }} {{ instance }} " % DEPLOY_SCRIPT_NAME +
                 "blade_cluster_config.yaml "
                 "/root/ssh_keys"
             )
@@ -511,11 +515,11 @@ class PrivateCluster:
         available non-pure-base-class Virtual Nodes.
 
         """
-        return None
+        return PrivateVirtualNodes(self.common)
 
     def get_virtual_networks(self):
         """Return a VirtualNetworks object containing all the
         available VirtualNetworks.
 
         """
-        return None
+        return PrivateVirtualNetworks(self.common)

@@ -37,54 +37,46 @@ class VirtualNodes(metaclass=ABCMeta):
 
     """
     @abstractmethod
-    def node_types(self):
-        """Get a list of Virtual Node types by name.
+    def node_classes(self):
+        """Get a list of Virtual Node classes by name.
 
         """
 
     @abstractmethod
-    def node_count(self, node_type):
+    def node_count(self, node_class):
         """Get the number of Virtual Node instances of the specified
-        type.
+        class.
 
         """
 
     @abstractmethod
-    def network_names(self, node_type):
+    def network_names(self, node_class):
         """Return the list of Network Names of the Networks connected
-        to the specified type of Virtual Node.
+        to the specified class of Virtual Node.
 
         """
 
     @abstractmethod
-    def node_hostname(self, node_type, instance, network_name=None):
-        """Get the hostname of a given Virtual Node type instance
+    def node_hostname(self, node_class, instance, network_name=None):
+        """Get the hostname of a given Virtual Node class instance
         (i.e. Virtual Node). Optionally, look up the hostname by
         network name for local names on a given Virtual Network.
 
         """
 
     @abstractmethod
-    def node_ip(self, node_type, instance, network_name):
-        """Return the IP address (string) on the named Virtual Network
-        of the specified instance of the named Virtual Node type
-        (i.e. Virtual Node).
-
-        """
-
-    @abstractmethod
-    def node_ssh_key_secret(self, node_type):
+    def node_ssh_key_secret(self, node_class):
         """Return the name of the secret containing the SSH key pair
         used to to authenticate with Virtual Node of the specified
-        node type.
+        node class.
 
         """
 
     @abstractmethod
-    def node_ssh_key_paths(self, node_type):
+    def node_ssh_key_paths(self, node_class):
         """Return a tuple of paths to files containing the public and
         private SSH keys used to to authenticate with Virtual Nodes of
-        the specified node type. The tuple is in the form
+        the specified node class. The tuple is in the form
         '(public_path, private_path)' The value of 'private_path' is
         suitable for use with the '-i' option of 'ssh'. Before
         returning this call will verify that both files can be opened
@@ -95,10 +87,10 @@ class VirtualNodes(metaclass=ABCMeta):
 
     @abstractmethod
     @contextmanager
-    def connect_node(self, node_type, instance, remote_port):
+    def connect_node(self, node_class, instance, remote_port):
         """Establish an external connection to the specified remote
         port on the specified instance of the named Virtual Node
-        type. Return a context manager (suitable for use in a 'with'
+        class. Return a context manager (suitable for use in a 'with'
         clause) yielding an NodeConnection object for the
         connection. Upon leaving the 'with' context, the connection in
         the NodeConnection is closed.
@@ -107,11 +99,11 @@ class VirtualNodes(metaclass=ABCMeta):
 
     @contextmanager
     @abstractmethod
-    def connect_nodes(self, remote_port, node_types=None):
+    def connect_nodes(self, remote_port, node_classes=None):
         """Establish external connections to the specified remote port
         on all the Virtual Node instances on all the Virtual Node
-        types listed by name in 'node_types'. If 'node_types' is not
-        provided or None, all available node types are used. Return a
+        classes listed by name in 'node_classes'. If 'node_classes' is not
+        provided or None, all available node classes are used. Return a
         context manager (suitable for use in a 'with' clause) yielding
         a NodeConnectionSet object representing the connections. Upon
         leaving the 'with' context, all the connections in the
@@ -121,10 +113,10 @@ class VirtualNodes(metaclass=ABCMeta):
 
     @abstractmethod
     @contextmanager
-    def ssh_connect_node(self, node_type, instance, remote_port):
+    def ssh_connect_node(self, node_class, instance, remote_port=22):
         """Establish an external connection to the SSH server
         port on the specified instance of the named Virtual Node
-        type. Return a context manager (suitable for use in a 'with'
+        class. Return a context manager (suitable for use in a 'with'
         clause) yielding a NodeSSHConnection object for the
         connection. Upon leaving the 'with' context, the connection in
         the NodeSSHConnection is closed.
@@ -133,11 +125,11 @@ class VirtualNodes(metaclass=ABCMeta):
 
     @contextmanager
     @abstractmethod
-    def ssh_connect_nodes(self, remote_port=22, node_types=None):
+    def ssh_connect_nodes(self, node_classes=None, remote_port=22):
         """Establish external connections to the specified remote port
         on all the Virtual Node instances on all the Virtual Node
-        types listed by name in 'node_types'. If 'node_types' is not
-        provided or None, all available node types are used. Return a
+        classes listed by name in 'node_classes'. If 'node_classes' is not
+        provided or None, all available node classes are used. Return a
         context manager (suitable for use in a 'with' clause) yielding
         a NodeSSHConnectionSet object representing the connections. Upon
         leaving the 'with' context, all the connections in the
@@ -171,8 +163,8 @@ class NodeConnection(metaclass=ABCMeta):
 
     """
     @abstractmethod
-    def node_type(self):
-        """Return the name of the Virtual Node type of the connected
+    def node_class(self):
+        """Return the name of the Virtual Node class of the connected
         Virtual Node.
 
         """
@@ -216,9 +208,9 @@ class NodeConnectionSet(metaclass=ABCMeta):
 
     """
     @abstractmethod
-    def list_connections(self, node_type=None):
+    def list_connections(self, node_class=None):
         """List the connections in the NodeConnectionSet filtered by
-        'node_type' if that is present. Otherwise simply list all of
+        'node_class' if that is present. Otherwise simply list all of
         the connections.
 
         """
@@ -308,7 +300,7 @@ class NodeSSHConnection(NodeConnection, metaclass=ABCMeta):
         templating to use any of the attributes of the underlying
         connection:
 
-        - the node type: 'node_type'
+        - the node class: 'node_class'
         - the node hostname: 'node_hostname'
         - the connection port on the node: 'remote_port'
         - the local connection IP address: 'local_ip'
@@ -347,11 +339,11 @@ class NodeSSHConnectionSet(NodeConnectionSet, metaclass=ABCMeta):
     """
     @abstractmethod
     def copy_to(
-        self, source, destination, recurse=False, logname=None, node_type=None
+        self, source, destination, recurse=False, logname=None, node_class=None
     ):
         """Copy the file at a path on the local machine ('source') to
         a path ('dest') on all of the selected nodes (based on
-        'node_type'). If 'node_type is not specified or None, copy
+        'node_class'). If 'node_class is not specified or None, copy
         the file to all connected nodes. Wait until all copies
         complete or fail. If any of the copies fail, collect the
         errors they produce to raise a ContextualError exception
@@ -370,10 +362,10 @@ class NodeSSHConnectionSet(NodeConnectionSet, metaclass=ABCMeta):
         """
 
     @abstractmethod
-    def run_command(self, cmd, logname=None, node_type=None):
+    def run_command(self, cmd, logname=None, node_class=None):
         """Using SSH, run the command in the string 'cmd'
         asynchronously on all connected nodes filtered by
-        'node_type'. If 'node_type' is unspecified or None, run on
+        'node_class'. If 'node_class' is unspecified or None, run on
         all connected nodes. The string 'cmd' can be templated using
         Jinja templating to use any of the attributes of the
         underlying connection. In this case, the connection in which
@@ -381,8 +373,8 @@ class NodeSSHConnectionSet(NodeConnectionSet, metaclass=ABCMeta):
         for example, 'node_hostname' will match the node on which
         the command runs:
 
-        - the node type: 'node_type'
-        - the node instance within its type: 'instance'
+        - the node class: 'node_class'
+        - the node instance within its class: 'instance'
         - the node hostname: 'node_hostname'
         - the connection port on the node: 'remote_port'
         - the local connection IP address: 'local_ip'

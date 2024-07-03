@@ -27,7 +27,7 @@
 flavor of the vTDS Cluster Layer. This creates Virtual Networks and
 Virtual Nodes as well as setting up DHCP and booting the Virtual Nodes
 based on a configuration file provided as the second argument on the
-command line. The first agument is the blade type of the blade it is
+command line. The first agument is the blade class of the blade it is
 running on.
 
 """
@@ -318,7 +318,7 @@ def is_dhcp_server(network, blade_class, blade_instance):
 
     """
     l3_config = find_l3_config(network, 'AF_INET')
-    candidates =  [
+    candidates = [
         blade
         for blade in l3_config.get('connected_blades', [])
         if blade.get('blade_class', None) == blade_class and
@@ -1792,7 +1792,7 @@ Where:
     blade_class is the name of the Virtual Blade class to which this
                 Virtual Blade belongs.
     blade_instance is the instance number of the blade within the
-                   list of blades of this type
+                   list of blades of this class
     config_path is the path to a YAML file containing the blade
                 configuration to apply.
     ssh_key_dir is the path to a directory containing the SSH key pair
