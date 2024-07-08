@@ -303,7 +303,7 @@ class PrivateCluster:
                     }
                 }
             }
-            node_class['network_interfaces']['netname'] = host_blade_interface
+            node_class['network_interfaces'][netname] = host_blade_interface
         self.config['networks'] = networks
         self.config['node_classes'] = node_classes
 
