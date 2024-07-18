@@ -209,15 +209,19 @@ class PrivateNodeConnection(NodeConnection):
         self.common = common
         self.n_class = node_class
         self.instance = instance
-        self.rem_port = remote_port
+        self.rem_port = int(remote_port)
         self.loc_ip = "127.0.0.1"
         self.loc_port = None
         self.subprocess = None
         self.blade_connection = None
+        self.options = [
+            '-o', 'NoHostAuthenticationForLocalhost=yes',
+            '-o', 'StrictHostKeyChecking=no',
+        ]
         self.hostname = self.common.node_hostname(node_class, instance)
         self._connect()
 
-    def __entry__(self):
+    def __enter__(self):
         return self
 
     def __exit__(
@@ -239,7 +243,7 @@ class PrivateNodeConnection(NodeConnection):
 
         """
         self.blade_connection = self.common.node_host_blade_connection(
-            self.n_class, self.instance, '22'
+            self.n_class, self.instance, 22
         )
         blade_hostname = self.blade_connection.blade_hostname()
         ssh_ip = self.blade_connection.local_ip()
@@ -273,6 +277,7 @@ class PrivateNodeConnection(NodeConnection):
                         self.loc_ip, str(self.loc_port),
                         node_ip, str(self.rem_port)
                     ),
+                    *self.options,
                     '-N',
                     '-p', str(ssh_port),
                     '-i', ssh_key_path,
@@ -315,7 +320,7 @@ class PrivateNodeConnection(NodeConnection):
                             "internal error: failed attempt to connect to "
                             "service on SSH port forwarding tunnel "
                             "to node '%s' port %d "
-                            "(local port = %s, local IP = %s) "
+                            "(local port = %d, local IP = %s) "
                             "connect cmd was %s - %s" % (
                                 self.hostname, self.rem_port,
                                 self.loc_port, self.loc_ip,
@@ -341,7 +346,7 @@ class PrivateNodeConnection(NodeConnection):
         raise ContextualError(
             "internal error: timeout waiting for SSH port forwarding "
             "connection to '%s' "
-            "port %d to be ready (local port = %s, local IP = %s) "
+            "port %d to be ready (local port = %d, local IP = %s) "
             "- connect command was %s" % (
                 self.hostname, self.rem_port,
                 self.loc_port, self.loc_ip,
@@ -379,7 +384,7 @@ class PrivateNodeConnectionSet(NodeConnectionSet):
         self.common = common
         self.connections = connections
 
-    def __entry__(self):
+    def __enter__(self):
         return self
 
     def __exit__(
@@ -484,9 +489,9 @@ class PrivateNodeSSHConnection(NodeSSHConnection, PrivateNodeConnection):
         ]
         self.options = kwargs.get('options', default_opts)
         self.options += port_opt
-        _, self.private_key_path = self.common.ssh_key_paths()
+        _, self.private_key_path = self.common.ssh_key_paths(node_class)
 
-    def __entry__(self):
+    def __enter__(self):
         return self
 
     def __exit__(
@@ -562,9 +567,9 @@ class PrivateNodeSSHConnection(NodeSSHConnection, PrivateNodeConnection):
         )
         recurse_option = ['-r'] if recurse else []
         cmd = [
-            'scp', '-i', self.private_key_path, *recurse_option, *self.options,
-            source,
-            'root@%s:%s' % (self.loc_ip, destination)
+            'scp', '-i', self.private_key_path,
+            '-P', str(self.local_port()), *recurse_option, *self.options,
+            source, 'root@%s:%s' % (self.loc_ip, destination),
         ]
         try:
             return self.__run(cmd, blocking, *logfiles, **kwargs)
@@ -595,9 +600,9 @@ class PrivateNodeSSHConnection(NodeSSHConnection, PrivateNodeConnection):
         )
         recurse_option = ['-r'] if recurse else []
         cmd = [
-            'scp', '-i', self.private_key_path, *recurse_option, *self.options,
-            'root@%s:%s' % (self.loc_ip, destination),
-            source
+            'scp', '-i', self.private_key_path,
+            '-P', str(self.local_port()), *recurse_option, *self.options,
+            'root@%s:%s' % (self.loc_ip, source), destination,
         ]
         try:
             return self.__run(cmd, blocking, *logfiles, **kwargs)
@@ -650,7 +655,7 @@ class PrivateNodeSSHConnectionSet(
         self.__doc__ = NodeSSHConnectionSet.__doc__
         PrivateNodeConnectionSet.__init__(self, common, connections)
 
-    def __entry__(self):
+    def __enter__(self):
         return self
 
     def __exit__(
@@ -665,7 +670,109 @@ class PrivateNodeSSHConnectionSet(
     def copy_to(
         self, source, destination, recurse=False, logname=None, node_class=None
     ):
-        return None
+        logname = (
+            logname if logname is not None else
+            "parallel-copy-to-node-%s-%s" % (source, destination)
+        )
+        # Okay, this is big and weird. It composes the arguments to
+        # pass to wait_for_popen() for each copy operation. Note
+        # that, normally, the 'cmd' argument in wait_for_popen() is
+        # the Popen() 'cmd' argument (i.e. a list of command
+        # compoinents. Here it is simply a descriptive string. This is
+        # okay because wait_for_popen() only uses that information
+        # for error generation.
+        wait_args_list = [
+            (
+                node_connection.copy_to(
+                    source, destination, recurse=recurse, blocking=False,
+                    logname=logname
+                ),
+                "scp %s to root@%s:%s" % (
+                    source,
+                    node_connection.node_hostname(),
+                    destination
+                ),
+                log_paths(
+                    self.common.build_dir(),
+                    "%s-%s" % (logname, node_connection.node_hostname())
+                )
+            )
+            for node_connection in self.connections
+            if node_class is None or
+            node_connection.node_class() == node_class
+        ]
+        # Go through all of the copy operations and collect (if
+        # needed) any errors that are raised by
+        # wait_for_popen(). This acts as a barrier, so when we are
+        # done, we know all of the copies have completed.
+        errors = []
+        for wait_args in wait_args_list:
+            try:
+                wait_for_popen(*wait_args)
+            # pylint: disable=broad-exception-caught
+            except Exception as err:
+                errors.append(str(err))
+        if errors:
+            raise ContextualError(
+                "errors reported while copying '%s' to '%s' on %s\n"
+                "    %s" % (
+                    source,
+                    destination,
+                    "all Virtual Nodes" if node_class is None else
+                    "Virtual Nodes of class %s" % node_class,
+                    "\n\n    ".join(errors)
+                )
+            )
 
     def run_command(self, cmd, logname=None, node_class=None):
-        return None
+        logname = (
+            logname if logname is not None else
+            "parallel-run-on-node-%s" % (cmd.split()[0])
+        )
+        # Okay, this is big and weird. It composes the arguments to
+        # pass to wait_for_popen() for each copy operation. Note
+        # that, normally, the 'cmd' argument in wait_for_popen() is
+        # the Popen() 'cmd' argument. Here is is simply the shell
+        # command being run under SSH. This is okay because
+        # wait_for_popen() only uses that information for error
+        # generation.
+        wait_args_list = [
+            (
+                node_connection.run_command(
+                    cmd, False,
+                    log_paths(
+                        self.common.build_dir(),
+                        "%s-%s" % (logname, node_connection.node_hostname())
+                    )
+                ),
+                cmd,
+                log_paths(
+                    self.common.build_dir(),
+                    "%s-%s" % (logname, node_connection.node_hostname())
+                )
+            )
+            for node_connection in self.connections
+            if node_class is None or
+            node_connection.node_class() == node_class
+        ]
+        # Go through all of the copy operations and collect (if
+        # needed) any errors that are raised by
+        # wait_for_popen(). This acts as a barrier, so when we are
+        # done, we know all of the copies have completed.
+        errors = []
+        for wait_args in wait_args_list:
+            try:
+                wait_for_popen(*wait_args)
+            # pylint: disable=broad-exception-caught
+            except Exception as err:
+                errors.append(str(err))
+        if errors:
+            raise ContextualError(
+                "errors reported running command '%s' on %s\n"
+                "    %s" % (
+                    cmd,
+                    "all Virtual Nodes" if node_class is None else
+                    "Virtual Nodes of class %s" % node_class,
+                    "\n\n    ".join(errors)
+                )
+            )

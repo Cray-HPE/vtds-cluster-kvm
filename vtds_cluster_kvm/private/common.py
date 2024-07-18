@@ -95,11 +95,11 @@ class Common:
         """
         if not isinstance(instance, int):
             raise ContextualError(
-                "Virtual Blade instance number must be integer not '%s'" %
+                "Virtual Node instance number must be integer not '%s'" %
                 type(instance)
             )
         node = self.__get_node(node_class)
-        count = int(node.get('count', 0))
+        count = int(node.get('node_count', 0))
         if instance < 0 or instance >= count:
             raise ContextualError(
                 "instance number %d out of range for Virtual Node "
@@ -118,10 +118,10 @@ class Common:
         addr_info = network_interface.get('addr_info', {})
         candidates = [
             info
-            for info in addr_info
+            for _, info in addr_info.items()
             if info.get('family', None) == family
         ]
-        if len(candidates > 1):
+        if len(candidates) > 1:
             raise ContextualError(
                 "network interface for virtual network '%s' in virtual node "
                 "class '%s' has more than one addr_info block for the '%s' "
@@ -136,6 +136,8 @@ class Common:
         string.
 
         """
+        if network_name is None:
+            return ""
         addr_info = self.__addr_info(node_class, network_name, 'AF_INET')
         return addr_info.get("hostname_suffix", "")
 
@@ -152,6 +154,17 @@ class Common:
                 "node class '%s'" % node_class
             )
         return host_blade_class
+
+    def __host_blade_instance_capacity(self, node_class):
+        """Determine the blade class hosting instances of the
+        specified Virtual Node class.
+
+        """
+        node = self.__get_node(node_class)
+        instance_capacity = int(
+            node.get('host_blade', {}).get('instance_capacity', 1)
+        )
+        return instance_capacity
 
     def get_config(self):
         """Get the full config data stored here.
@@ -208,7 +221,7 @@ class Common:
 
         """
         node = self.__get_node(node_class)
-        return int(node.get('count', 0))
+        return int(node.get('node_count', 0))
 
     def node_networks(self, node_class):
         """Return the list of names of Virtual Networks connected to
@@ -272,10 +285,8 @@ class Common:
                 )
             )
         host_blade_class = self.__host_blade_class(node_class)
-        instance_capacity = int(
-            host_blade_class.get('host_blade', {}).get('instance_capacity', 1)
-        )
-        return (host_blade_class, instance / instance_capacity)
+        instance_capacity = self.__host_blade_instance_capacity(node_class)
+        return (host_blade_class, int(instance / instance_capacity))
 
     def node_host_blade_ip(self, node_class, node_instance):
         """Given a node class and instance number return the IP
