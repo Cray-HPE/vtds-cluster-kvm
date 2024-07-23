@@ -65,6 +65,17 @@ class VirtualNodes(metaclass=ABCMeta):
         """
 
     @abstractmethod
+    def node_ipv4_addr(self, node_class, instance, network_name):
+        """Get the configured IPv4 address (if any) for the specified
+        instance of the specified node class on the specified
+        network. If IP addresses are not configured for the specified
+        node class (i.e. they are dynamic DHCP addresses) this will
+        return None. If the specified node class is not present on the
+        specified network this will raise a ContextualError exception.
+
+        """
+
+    @abstractmethod
     def node_ssh_key_secret(self, node_class):
         """Return the name of the secret containing the SSH key pair
         used to to authenticate with Virtual Node of the specified
