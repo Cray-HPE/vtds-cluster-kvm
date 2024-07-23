@@ -63,8 +63,8 @@ class Common:
 
     def __get_node_interface(self, node_class, network_name):
         """class private: Get the named virtual network interface
-        information from the specified Virtual Node class. Return None
-        if there is no such interface.
+        information from the specified Virtual Node class. Raise an
+        exception if there is no such interface.
 
         """
         node = self.__get_node(node_class)
@@ -86,7 +86,13 @@ class Common:
                 "interface connected to "
                 "network '%s'" % (node_class, network_name)
             )
-        return candidates[0] if candidates else None
+        if not candidates:
+            raise ContextualError(
+                "virtual node class '%s' defines no network "
+                "interface connected to "
+                "network '%s'" % (node_class, network_name)
+            )
+        return candidates[0]
 
     def __check_node_instance(self, node_class, instance):
         """class private: Ensure that the specified instance number
@@ -214,6 +220,29 @@ class Common:
             if instance < len(node_names)
             else "%s-%3.3d" % (base_name, instance + 1)
         ) + self.__hostname_net_suffix(node_class, network_name)
+
+    def node_ipv4_addr(self, node_class, instance, network_name):
+        """Get the configured IPv4 address (if any) for the specified
+        instance of the specified node class on the specified
+        network. If IP addresses are not configured for the specified
+        node class (i.e. they are dynamic DHCP addresses) this will
+        return None. If the specified node class is not present on the
+        specified network this will raise a ContextualError exception.
+
+        """
+        self.__check_node_instance(node_class, instance)
+        addr_info = self.__addr_info(node_class, network_name, "AF_INET")
+        if addr_info.get('mode', 'dynamic') == 'dynamic':
+            # Dynamically addressed nodes have no configured IP
+            # addresses.
+            return None
+        addrs = addr_info.get('addresses', [])
+        if len(addrs) < instance:
+            # No address for this instance in the list of static or
+            # reserved addresses, so this node falls back to
+            # 'dynamic'.
+            return None
+        return addrs[instance]
 
     def node_count(self, node_class):
         """Get the number of Virtual Blade instances of the specified

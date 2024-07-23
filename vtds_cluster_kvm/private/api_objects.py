@@ -86,6 +86,9 @@ class PrivateVirtualNodes(VirtualNodes):
             node_class, instance, network_name
         )
 
+    def node_ipv4_addr(self, node_class, instance, network_name):
+        return self.common.node_ipv4_addr(node_class, instance, network_name)
+
     def node_ssh_key_secret(self, node_class):
         return self.common.node_ssh_key_secret(node_class)
 
