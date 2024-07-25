@@ -259,8 +259,10 @@ class Common:
         """
         node = self.__get_node(node_class)
         return [
-            network_interface.get['cluster_network']
-            for _, network_interface in node.get('network_interfaces', {})
+            network_interface['cluster_network']
+            for _, network_interface in node.get(
+                    'network_interfaces', {}
+            ).items()
             if not network_interface.get('delete', False)
             and 'cluster_network' in network_interface
         ]
