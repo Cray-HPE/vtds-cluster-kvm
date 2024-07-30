@@ -170,6 +170,15 @@ class PrivateVirtualNetworks(VirtualNetworks):
                 "the following Virtual Networks: %s" % str(missing_names)
             ) from err
 
+    def __network_by_name(self, network_name):
+        """Return the network configuration for the named network.
+        """
+        if network_name not in self.networks_by_name:
+            raise ContextualError(
+                "the Virtual Network named '%s' does not exist" % network_name
+            )
+        return self.networks_by_name[network_name]
+
     def __l3_config(self, network_name, family):
         """Get the l3_info block for the specified address family from
         the network of the specified name.  If the network doesn't
@@ -177,11 +186,7 @@ class PrivateVirtualNetworks(VirtualNetworks):
         return None.
 
         """
-        if network_name not in self.networks_by_name:
-            raise ContextualError(
-                "the Virtual Network named '%s' does not exist" % network_name
-            )
-        network = self.networks_by_name[network_name]
+        network = self.__network_by_name(network_name)
         candidates = [
             l3_info
             for _, l3_info in network.get('l3_configs', {}).items()
@@ -197,6 +202,10 @@ class PrivateVirtualNetworks(VirtualNetworks):
         if l3_config is None:
             return None
         return l3_config.get('cidr', None)
+
+    def non_cluster_network(self, network_name):
+        network = self.__network_by_name(network_name)
+        return network.get('non_cluster', False)
 
 
 class PrivateNodeConnection(NodeConnection):
