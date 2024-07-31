@@ -167,6 +167,16 @@ class VirtualNetworks(metaclass=ABCMeta):
 
         """
 
+    @abstractmethod
+    def non_cluster_network(self, network_name):
+        """A network in the cluster configuration may be a network
+        used by vTDS for constructing the cluster but not intended for
+        use by applications running on the cluster. Such a network is
+        a 'non-cluster network'.  Return True if the specified network
+        name refers to a non-cluster network otherwise return False.
+
+        """
+
 
 class NodeConnection(metaclass=ABCMeta):
     """A class containing the relevant information needed to use
