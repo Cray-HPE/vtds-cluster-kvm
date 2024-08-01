@@ -208,6 +208,7 @@ class PrivateVirtualNetworks(VirtualNetworks):
         return network.get('non_cluster', False)
 
 
+# pylint: disable=too-many-instance-attributes
 class PrivateNodeConnection(NodeConnection):
     """Private implementation of the NodeConnection Cluster Layer API
     Class.
