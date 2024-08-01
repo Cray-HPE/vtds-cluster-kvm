@@ -226,6 +226,8 @@ class PrivateNodeConnection(NodeConnection):
         self.loc_port = None
         self.subprocess = None
         self.blade_connection = None
+        self.out_log = None
+        self.err_log = None
         self.options = [
             '-o', 'NoHostAuthenticationForLocalhost=yes',
             '-o', 'StrictHostKeyChecking=no',
@@ -249,6 +251,12 @@ class PrivateNodeConnection(NodeConnection):
         if self.subprocess:
             self.subprocess.kill()
         self.subprocess = None
+        if self.out_log is not None:
+            self.out_log.close()
+        self.out_log = None
+        if self.err_log is not None:
+            self.err_log.close()
+        self.err_log = None
 
     def _connect(self):
         """Set up the port forwarding connection to the node.
@@ -274,32 +282,40 @@ class PrivateNodeConnection(NodeConnection):
             with TCPServer((self.loc_ip, 0), None) as tmp:
                 self.loc_port = tmp.server_address[1]
 
-            with logfile(out_path) as out, logfile(err_path) as err:
-                # Not using 'with' for the Popen because the Popen
-                # object becomes part of this class instance for the
-                # duration of the class instance's life cycle. The
-                # instance itself is a context manager which will
-                # disconnect and destroy the Popen object when the
-                # context ends.
-                #
-                # pylint: disable=consider-using-with
-                cmd = [
-                    'ssh',
-                    '-L', "%s:%s:%s:%s" % (
-                        self.loc_ip, str(self.loc_port),
-                        node_ip, str(self.rem_port)
-                    ),
-                    *self.options,
-                    '-N',
-                    '-p', str(ssh_port),
-                    '-i', ssh_key_path,
-                    "root@%s" % ssh_ip
-                ]
-                self.subprocess = Popen(
-                    cmd,
-                    stdout=out, stderr=err,
-                    text=True, encoding='UTF-8'
-                )
+            # Not using with for these files because they want to
+            # survive the return from the function.
+            #
+            # pylint: disable=consider-using-with
+            self.out_log = open(out_path, 'w', encoding='UTF-8')
+            # pylint: disable=consider-using-with
+            self.err_log = open(err_path, 'w', encoding='UTF-8')
+
+            # Not using 'with' for the Popen because the Popen
+            # object becomes part of this class instance for the
+            # duration of the class instance's life cycle. The
+            # instance itself is a context manager which will
+            # disconnect and destroy the Popen object when the
+            # context ends.
+            #
+            # pylint: disable=consider-using-with
+            cmd = [
+                'ssh',
+                '-L', "%s:%s:%s:%s" % (
+                    self.loc_ip, str(self.loc_port),
+                    node_ip, str(self.rem_port)
+                ),
+                *self.options,
+                '-N',
+                '-vvv',
+                '-p', str(ssh_port),
+                '-i', ssh_key_path,
+                "root@%s" % ssh_ip
+            ]
+            self.subprocess = Popen(
+                cmd,
+                stdout=self.out_log, stderr=self.err_log,
+                text=True, encoding='UTF-8'
+            )
 
             # Wait for the tunnel to be established before returning.
             retries = 60
