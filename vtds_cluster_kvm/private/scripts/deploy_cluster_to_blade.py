@@ -41,6 +41,11 @@ from os.path import (
     exists,
     join as path_join
 )
+from socket import (
+    socket,
+    SOCK_STREAM,
+    AF_INET
+)
 from subprocess import (
     Popen,
     TimeoutExpired,
@@ -991,12 +996,11 @@ class VirtualNode:
 
     """
     def __init__(self, node_class, networks, node_instance):
-        """Constructor: 'node_class_name' is the name (key) of the
-        node class to be used to make the Virtual Node, 'node_class'
-        is the node class configuration for the Virtual node, networks
-        is a filtered dictionary indexed by network name of the
-        networks that are connected to the Virtual Node, instance is
-        the instance number within its node class of the Virtual Node.
+        """Constructor: 'node_class' is the node class configuration
+        for the Virtual node, 'networks' is a filtered dictionary
+        indexed by network name of the networks that are connected to
+        the Virtual Node, 'node_instance' is the instance number
+        within its node class of the Virtual Node.
 
         """
         self.class_name = node_class['class_name']
@@ -1051,6 +1055,56 @@ class VirtualNode:
             if self.node_instance < len(node_names)
             else "%s-%3.3d" % (base_name, int(self.node_instance) + 1)
         )
+
+    def __node_ipv4(self, network):
+        """Get the IPv4 address of this node on the named network if
+        this node's instance of its node class has a static or
+        reserved address on that network. Otherwise return None.
+
+        """
+        interface_candidates = [
+            interface
+            for _, interface in self.node_class
+            .get('network_interfaces', {}).items()
+            if interface.get('cluster_network', None) == network
+        ]
+        if not interface_candidates:
+            raise ContextualError(
+                "there is no network interface for network '%s' in %s" % (
+                    network, self.hostname
+                )
+            )
+        if len(interface_candidates) > 1:
+            raise ContextualError(
+                "there is more than one network interface for "
+                "network '%s' in %s" % (
+                    network, self.hostname
+                )
+            )
+        interface = interface_candidates[0]
+        addr_info = find_addr_info(interface, 'AF_INET')
+        addresses = addr_info.get('addresses', [])
+        return (
+            addresses[self.node_instance]
+            if len(addresses) > self.node_instance
+            else None
+        )
+
+    def __host_blade_ipv4(self):
+        """Find the IP address of this Virtual Node on the Host Blade
+        network (the blade local network used by the Virtual Blade
+        hosting a Virtual Node to talk to the node).
+
+        """
+        # This is kind of wrong, since 'non_cluster' could be used for
+        # something else entirely, but it is the best I have right now
+        # without knowing the whole config, so it will have to do.
+        candidates = [
+            self.__node_ipv4(network)
+            for network, network_settings in self.networks.items()
+            if network_settings.get('non_cluster', False)
+        ]
+        return candidates[0] if candidates else None
 
     @staticmethod
     def __retrieve_image(url, dest):
@@ -1447,6 +1501,64 @@ class VirtualNode:
             run_cmd('virsh', ['define', tmpfile.name])
             run_cmd('virsh', ['start', self.hostname])
 
+    def wait_for_ssh(self):
+        """Wait for the node to be up and listening on the SSH port
+        (port 22). This is a good indication that the node has fully
+        booted. Do this using simple TCP connect operations to reduce
+        overhead and speed up the operation. If we can connect to the
+        SSH port, that indicates that the server is running which
+        should be enough.
+
+        """
+        last_err = None
+        retries = 100
+        while retries > 0:
+            with socket(AF_INET, SOCK_STREAM) as tmp:
+                try:
+                    # Got a connection, we are finished. Let the
+                    # conection close with the return.
+                    tmp.connect((self.__host_blade_ipv4(), 22))
+                    return
+                except TimeoutError as err:
+                    # The connect attempt timed out. This means that
+                    # the node has not yet started handling network
+                    # traffic, but it takes quite a while to happen,
+                    # so don't sleep, just let the loop try again.
+                    info_msg(
+                        "timed out waiting for '%s' to be "
+                        "ready, trying again" % self.hostname
+                    )
+                    last_err = err
+                except ConnectionRefusedError as err:
+                    # Connect Refused means that networking is up but
+                    # SSH is not being served just yet. Give it 5
+                    # seconds and it will probably be ready.
+                    info_msg(
+                        "connection refused waiting for '%s' to be "
+                        "ready, trying again" % self.hostname
+                    )
+                    sleep(5)
+                    last_err = err
+                except OSError as err:
+                    # An OSError here (other than COnnectionRefused)
+                    # usually indicates a failure to ARP on the host,
+                    # meaning that the network is there but not yet up
+                    # on the node.
+                    info_msg(
+                        "%s occurred waiting for '%s' to be "
+                        "ready, trying again" % (str(err), self.hostname)
+                    )
+                    sleep(10)
+                    last_err = err
+                finally:
+                    retries -= 1
+        # If we got to here, we failed and the exception information
+        # is in 'last_err'. Raise an exception to report the error.
+        raise ContextualError(
+            "failed to connect to '%s' on port 22 to verify "
+            "boot success - %s" % (self.hostname, str(last_err))
+        )
+
     def stop(self):
         """Stop but do not undefine the Virtual Node.
         """
@@ -1764,6 +1876,10 @@ def main(argv):
     # Now create all the Virtual Nodes in the list
     for node in nodes:
         node.create()
+    # Now wait for the Virtual Nodes to be up and running (listening
+    # on the SSH port)
+    for node in nodes:
+        node.wait_for_ssh()
 
 
 def entrypoint(usage_msg, main_func):
