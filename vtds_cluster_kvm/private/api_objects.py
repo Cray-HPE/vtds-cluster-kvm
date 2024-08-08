@@ -232,6 +232,8 @@ class PrivateNodeConnection(NodeConnection):
         self.options = [
             '-o', 'NoHostAuthenticationForLocalhost=yes',
             '-o', 'StrictHostKeyChecking=no',
+            '-o', 'ServerAliveInterval=30',
+            '-o', 'ServerAliveCountMax=3',
         ]
         self.hostname = self.common.node_hostname(node_class, instance)
         self._connect()
@@ -307,6 +309,7 @@ class PrivateNodeConnection(NodeConnection):
                 ),
                 *self.options,
                 '-N',
+                '-T',
                 '-vvv',
                 '-p', str(ssh_port),
                 '-i', ssh_key_path,
