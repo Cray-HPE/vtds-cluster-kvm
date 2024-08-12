@@ -35,30 +35,26 @@ from socket import (
     SOCK_STREAM
 )
 from time import sleep
-from jinja2 import (
-    Template,
-    TemplateError
-)
 
 from vtds_base import (
     ContextualError,
     log_paths,
     logfile,
-    info_msg
+    info_msg,
+    render_command_string
 )
-from ..api_objects import (
-    VirtualNodes,
-    VirtualNetworks,
-    NodeConnection,
-    NodeConnectionSet,
-    NodeSSHConnection,
-    NodeSSHConnectionSet
+from vtds_base.layers.cluster import (
+    VirtualNodesBase,
+    VirtualNetworksBase,
+    NodeConnectionBase,
+    NodeConnectionSetBase,
+    NodeSSHConnectionBase,
+    NodeSSHConnectionSetBase
 )
 
 
-class PrivateVirtualNodes(VirtualNodes):
-    """Private implementation of the VirtualNodes Cluster Layer API
-    Class.
+class VirtualNodes(VirtualNodesBase):
+    """Implementation of the VirtualNodes Cluster Layer API Class.
 
     """
     def __init__(self, common):
@@ -96,7 +92,7 @@ class PrivateVirtualNodes(VirtualNodes):
         return self.common.node_ssh_key_paths(node_class)
 
     def connect_node(self, node_class, instance, remote_port):
-        return PrivateNodeConnection(
+        return NodeConnection(
             self.common, node_class, instance, remote_port
         )
 
@@ -105,16 +101,16 @@ class PrivateVirtualNodes(VirtualNodes):
             self.node_classes() if node_classes is None else node_classes
         )
         connections = [
-            PrivateNodeConnection(
+            NodeConnection(
                 self.common, node_class, instance, remote_port
             )
             for node_class in node_classes
             for instance in range(0, self.node_count(node_class))
         ]
-        return PrivateNodeConnectionSet(self.common, connections)
+        return NodeConnectionSet(self.common, connections)
 
     def ssh_connect_node(self, node_class, instance, remote_port=22):
-        return PrivateNodeSSHConnection(
+        return NodeSSHConnection(
             self.common, node_class, instance, remote_port
         )
 
@@ -123,18 +119,17 @@ class PrivateVirtualNodes(VirtualNodes):
             self.node_classes() if node_classes is None else node_classes
         )
         connections = [
-            PrivateNodeSSHConnection(
+            NodeSSHConnection(
                 self.common, node_class, instance, remote_port
             )
             for node_class in node_classes
             for instance in range(0, self.node_count(node_class))
         ]
-        return PrivateNodeSSHConnectionSet(self.common, connections)
+        return NodeSSHConnectionSet(self.common, connections)
 
 
-class PrivateVirtualNetworks(VirtualNetworks):
-    """Private implementation of the VirtualNetworks Cluster Layer API
-    Class.
+class VirtualNetworks(VirtualNetworksBase):
+    """Implementation of the VirtualNetworks Cluster Layer API Class.
 
     """
     def __init__(self, common):
@@ -209,9 +204,8 @@ class PrivateVirtualNetworks(VirtualNetworks):
 
 
 # pylint: disable=too-many-instance-attributes
-class PrivateNodeConnection(NodeConnection):
-    """Private implementation of the NodeConnection Cluster Layer API
-    Class.
+class NodeConnection(NodeConnectionBase):
+    """Implementation of the NodeConnection Cluster Layer API Class.
 
     """
     def __init__(self, common, node_class, instance, remote_port):
@@ -403,8 +397,8 @@ class PrivateNodeConnection(NodeConnection):
         return self.rem_port
 
 
-class PrivateNodeConnectionSet(NodeConnectionSet):
-    """Private implementation of the NodeConnectionSet Cluster Layer API
+class NodeConnectionSet(NodeConnectionSetBase):
+    """Implementation of the NodeConnectionSet Cluster Layer API
     Class.
 
     """
@@ -442,8 +436,8 @@ class PrivateNodeConnectionSet(NodeConnectionSet):
         return None
 
 
-# The following is shared by PrivateNodeSSHConnection and
-# PrivateNodeSSHConnectionSet. This should be treaded as private to
+# The following is shared by NodeSSHConnection and
+# NodeSSHConnectionSet. This should be treaded as private to
 # this file. It is pulled out of both classes for easy sharing.
 def wait_for_popen(subprocess, cmd, logpaths, timeout=None, **kwargs):
     """Wait for a Popen() object to reach completion and return
@@ -496,8 +490,8 @@ def wait_for_popen(subprocess, cmd, logpaths, timeout=None, **kwargs):
     return exitval
 
 
-class PrivateNodeSSHConnection(NodeSSHConnection, PrivateNodeConnection):
-    """Private implementation of the NodeSSHConnection Cluster Layer API
+class NodeSSHConnection(NodeSSHConnectionBase, NodeConnection):
+    """Implementation of the NodeSSHConnection Cluster Layer API
     Class.
 
     """
@@ -508,7 +502,7 @@ class PrivateNodeSSHConnection(NodeSSHConnection, PrivateNodeConnection):
         # Make sure instances get a good Doc string, even though the
         # class doesn't
         self.__doc__ = NodeSSHConnection.__doc__
-        PrivateNodeConnection.__init__(
+        NodeConnection.__init__(
             self, common, node_class, node_instance, remote_port
         )
         default_opts = [
@@ -532,7 +526,7 @@ class PrivateNodeSSHConnection(NodeSSHConnection, PrivateNodeConnection):
             exception_value=None,
             traceback=None
     ):
-        PrivateNodeConnection.__exit__(
+        NodeConnection.__exit__(
             self, exception_type, exception_value, traceback
         )
 
@@ -574,16 +568,7 @@ class PrivateNodeSSHConnection(NodeSSHConnection, PrivateNodeConnection):
             'local_ip': self.loc_ip,
             'local_port': self.loc_port
         }
-        try:
-            template = Template(cmd)
-            return template.render(**jinja_values)
-        except TemplateError as err:
-            raise ContextualError(
-                "error using Jinja to render command line '%s' - %s" % (
-                    cmd,
-                    str(err)
-                )
-            ) from err
+        return render_command_string(cmd, jinja_values)
 
     def copy_to(
             self, source, destination,
@@ -673,10 +658,8 @@ class PrivateNodeSSHConnection(NodeSSHConnection, PrivateNodeConnection):
             ) from err
 
 
-class PrivateNodeSSHConnectionSet(
-        NodeSSHConnectionSet, PrivateNodeConnectionSet
-):
-    """Private implementation of the NodeSSHConnectionSet Cluster Layer API
+class NodeSSHConnectionSet(NodeSSHConnectionSetBase, NodeConnectionSet):
+    """Implementation of the NodeSSHConnectionSet Cluster Layer API
     Class.
 
     """
@@ -685,7 +668,7 @@ class PrivateNodeSSHConnectionSet(
         # Make sure instances get a good Doc string, even though the
         # class doesn't
         self.__doc__ = NodeSSHConnectionSet.__doc__
-        PrivateNodeConnectionSet.__init__(self, common, connections)
+        NodeConnectionSet.__init__(self, common, connections)
 
     def __enter__(self):
         return self

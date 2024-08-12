@@ -37,6 +37,9 @@ from vtds_base import (
     info_msg,
     expand_inheritance
 )
+from vtds_base.layers.cluster import (
+    ClusterAPI
+)
 
 from . import (
     DEPLOY_SCRIPT_PATH,
@@ -45,13 +48,13 @@ from . import (
 )
 from .common import Common
 from .api_objects import (
-    PrivateVirtualNodes,
-    PrivateVirtualNetworks
+    VirtualNodes,
+    VirtualNetworks
 )
 
 
-class PrivateCluster:
-    """PrivateCluster class, implements the kvm cluster layer
+class Cluster(ClusterAPI):
+    """Cluster class, implements the kvm cluster layer
     accessed through the python Cluster API.
 
     """
@@ -61,7 +64,12 @@ class PrivateCluster:
         caller that will drive all activities at all layers.
 
         """
-        self.config = config
+        self.__doc__ = ClusterAPI.__doc__
+        self.config = config.get('cluster', None)
+        if self.config is None:
+            raise ContextualError(
+                "no cluster configuration found in top level configuration"
+            )
         self.provider_api = None
         self.stack = stack
         self.build_dir = build_dir
@@ -409,11 +417,6 @@ class PrivateCluster:
             self.__add_mac_addresses(node_class)
 
     def prepare(self):
-        """Prepare operation. This drives creation of the cluster
-        layer definition and any configuration that need to be driven
-        down into the cluster layer to be ready for deployment.
-
-        """
         self.provider_api = self.stack.get_provider_api()
         self.__add_host_blade_net()
         blade_config = self.config
@@ -432,11 +435,6 @@ class PrivateCluster:
         self.prepared = True
 
     def validate(self):
-        """Run the terragrunt plan operation on a prepared kvm
-        cluster layer to make sure that the configuration produces a
-        useful result.
-
-        """
         if not self.prepared:
             raise ContextualError(
                 "cannot validate an unprepared cluster, call prepare() first"
@@ -444,11 +442,6 @@ class PrivateCluster:
         print("Validating vtds-cluster-kvm")
 
     def deploy(self):
-        """Deploy operation. This drives the deployment of cluster
-        layer resources based on the layer definition. It can only be
-        called after the prepare operation (prepare()) completes.
-
-        """
         if not self.prepared:
             raise ContextualError(
                 "cannot deploy an unprepared cluster, call prepare() first"
@@ -501,25 +494,13 @@ class PrivateCluster:
             connections.run_command(cmd, "run-cluster-deploy-script-on")
 
     def remove(self):
-        """Remove operation. This will remove all resources
-        provisioned for the cluster layer.
-
-        """
         if not self.prepared:
             raise ContextualError(
                 "cannot remove an unprepared cluster, call prepare() first"
             )
 
     def get_virtual_nodes(self):
-        """Return a VirtualNodes object containing all of the
-        available non-pure-base-class Virtual Nodes.
-
-        """
-        return PrivateVirtualNodes(self.common)
+        return VirtualNodes(self.common)
 
     def get_virtual_networks(self):
-        """Return a VirtualNetworks object containing all the
-        available VirtualNetworks.
-
-        """
-        return PrivateVirtualNetworks(self.common)
+        return VirtualNetworks(self.common)
