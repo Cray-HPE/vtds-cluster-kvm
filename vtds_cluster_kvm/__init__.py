@@ -23,5 +23,5 @@
 """Init
 
 """
-from .base_config import BaseConfig
-from .cluster import LayerAPI
+from .private.config import BaseConfig
+from .private.cluster import Cluster as LayerAPI

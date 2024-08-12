@@ -28,7 +28,7 @@ from . import CONFIG_DIR
 
 
 # pylint: disable=too-few-public-methods
-class PrivateBaseConfig(BaseConfiguration):
+class BaseConfig(BaseConfiguration):
     """BaseConfig class presents operations on the base configuration
     of the layer to callers.
 
