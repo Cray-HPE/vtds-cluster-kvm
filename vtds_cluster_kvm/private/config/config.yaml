@@ -1,4 +1,24 @@
 cluster:
+  # The python information here pertains to a shared Python Virtual
+  # Environment created by the Cluster layer for use of it and any
+  # higher layers (application layers) that might need it. Specifically,
+  # this allows the path to the virtual environment to be specified and
+  # it allows for the specification of Python modules to be
+  # pre-installed by the Cluster layer in that virtual environment for
+  # use by other layers.
+  python:
+    node_venv_path: /root/blade-venv
+    modules:
+    modules:
+      example:
+        # Install 
+        module_name: pyyaml
+        delete: true # this is an example, so don't really install it
+        source_type: pypi
+        metadata:
+          url: null
+          version: pyyaml~=6.0
+    
   # The 'host_blade_network' specifies the parameters for a
   # blade-local network used only among Virtual Nodes that share a
   # single blade and the blade itself. The addresses here are
