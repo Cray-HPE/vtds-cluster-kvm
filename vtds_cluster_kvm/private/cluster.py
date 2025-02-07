@@ -71,6 +71,7 @@ class Cluster(ClusterAPI):
                 "no cluster configuration found in top level configuration"
             )
         self.provider_api = None
+        self.platform_api = None
         self.stack = stack
         self.build_dir = build_dir
         self.blade_config_path = path_join(
@@ -418,6 +419,7 @@ class Cluster(ClusterAPI):
 
     def prepare(self):
         self.provider_api = self.stack.get_provider_api()
+        self.platform_api = self.stack.get_platform_api()
         self.__add_host_blade_net()
         blade_config = self.config
         self.__expand_node_classes(blade_config)
@@ -483,9 +485,10 @@ class Cluster(ClusterAPI):
                 DEPLOY_SCRIPT_PATH, "/root/%s" % DEPLOY_SCRIPT_NAME,
                 False, "upload-cluster-deploy-script-to"
             )
+            python3 = self.platform_api.get_blade_python_executable()
             cmd = (
                 "chmod 755 ./%s;" % DEPLOY_SCRIPT_NAME +
-                "python3 " +
+                "%s " % python3 +
                 "./%s {{ blade_class }} {{ instance }} " % DEPLOY_SCRIPT_NAME +
                 "blade_cluster_config.yaml "
                 "/root/ssh_keys"
