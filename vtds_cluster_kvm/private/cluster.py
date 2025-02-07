@@ -507,14 +507,3 @@ class Cluster(ClusterAPI):
 
     def get_virtual_networks(self):
         return VirtualNetworks(self.common)
-
-    def get_node_venv_path(self):
-        python_config = self.config.get('python', {})
-        return python_config.get('node_venv_path', "/root/node-venv")
-
-    def get_node_python_executable(self):
-        # NOTE: do not use path_join() here to construct the path. The
-        # path here is being constructed for a Linux environment,
-        # where path separators are always '/' and which might not
-        # match the system this code is running on.
-        return "%s/bin/python3" % self.get_node_venv_path()
