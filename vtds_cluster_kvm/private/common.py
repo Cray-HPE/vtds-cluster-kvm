@@ -41,25 +41,28 @@ class Common:
         self.config = config
         self.stack = stack
         self.build_directory = build_dir
+        for node_class in self.get('node_classes', {}):
+            self.__init_node_naming(node_class)
+            self.__init_host_naming(node_class)
 
-    def __get_node(self, node_class):
-        """class private: retrieve the node class deascription for the
+    def __get_node_class(self, node_class, allow_pure=False):
+        """class private: retrieve the node class description for the
         named class.
 
         """
         virtual_nodes = (
             self.get('node_classes', {})
         )
-        node = virtual_nodes.get(node_class, None)
-        if node is None:
+        nclass = virtual_nodes.get(node_class, None)
+        if nclass is None:
             raise ContextualError(
                 "cannot find the virtual node class '%s'" % node_class
             )
-        if node.get('pure_base_class', False):
+        if nclass.get('pure_base_class', False) and not allow_pure:
             raise ContextualError(
-                "node class '%s' is a pure pure base class" % node_class
+                "node class '%s' is a pure base class" % node_class
             )
-        return node
+        return nclass
 
     def __get_node_interface(self, node_class, network_name):
         """class private: Get the named virtual network interface
@@ -67,8 +70,8 @@ class Common:
         exception if there is no such interface.
 
         """
-        node = self.__get_node(node_class)
-        network_interfaces = node.get('network_interfaces', None)
+        nclass = self.__get_node_class(node_class)
+        network_interfaces = nclass.get('network_interfaces', None)
         if network_interfaces is None:
             raise ContextualError(
                 "provider config error: Virtual Node class '%s' has no "
@@ -104,8 +107,8 @@ class Common:
                 "Virtual Node instance number must be integer not '%s'" %
                 type(instance)
             )
-        node = self.__get_node(node_class)
-        count = int(node.get('node_count', 0))
+        nclass = self.__get_node_class(node_class)
+        count = int(nclass.get('node_count', 0))
         if instance < 0 or instance >= count:
             raise ContextualError(
                 "instance number %d out of range for Virtual Node "
@@ -152,8 +155,10 @@ class Common:
         specified Virtual Node class.
 
         """
-        node = self.__get_node(node_class)
-        host_blade_class = node.get('host_blade', {}).get('blade_class', None)
+        nclass = self.__get_node_class(node_class)
+        host_blade_class = nclass.get('host_blade', {}).get(
+            'blade_class', None
+        )
         if host_blade_class is None:
             raise ContextualError(
                 "unable to find the host blade class for "
@@ -166,11 +171,128 @@ class Common:
         specified Virtual Node class.
 
         """
-        node = self.__get_node(node_class)
+        nclass = self.__get_node_class(node_class)
         instance_capacity = int(
-            node.get('host_blade', {}).get('instance_capacity', 1)
+            nclass.get('host_blade', {}).get('instance_capacity', 1)
         )
         return instance_capacity
+
+    @staticmethod
+    def __name_from_base(node_class, naming, instance):
+        """Compute the node or host name of a given instance of
+        'node_class' based on the 'base_name' in the 'naming'
+        information provided.
+
+        """
+        try:
+            base_name = naming['base_name']
+        except KeyError as err:
+            raise ContextualError(
+                "virtual node class '%s' has no 'base_name' in its "
+                "'node_naming' section" % node_class
+            ) from err
+        return "%s-%3.3d" % (base_name, instance + 1)
+
+    @staticmethod
+    def __node_naming(node_class, nclass):
+        """Return the 'node_naming' section of the provided node class
+        object.
+
+        """
+        try:
+            return nclass['node_naming']
+        except KeyError as err:
+            raise ContextualError(
+                "virtual node class '%s' has no 'node_naming' "
+                "section [%s]." % (node_class, str(nclass))
+            ) from err
+
+    @classmethod
+    def __node_naming_names(cls, node_class, nclass):
+        """Return the 'node_names' list from the 'node_naming' section
+        of the supplied node class object. If there is none, add one
+        and make it an empty list, then return it.
+
+        """
+        naming = cls.__node_naming(node_class, nclass)
+        try:
+            return naming['node_names']
+        except KeyError:
+            naming['node_names'] = []
+        return naming['node_names']
+
+    def __init_node_naming(self, node_class):
+        """Simplify the "node_naming" structure in the named node
+        class by completely filling out the 'node_names' list with
+        names either as they are in the config or as they would be
+        computed based on the 'base_name' field.
+
+        """
+        nclass = self.__get_node_class(node_class, allow_pure=True)
+        if nclass.get('pure_base_class', False):
+            # Don't massage pure base classes...
+            return
+        names = self.__node_naming_names(node_class, nclass)
+        node_count = self.node_count(node_class)
+        needed = node_count - len(names) if len(names) < node_count else 0
+        names += [None] * needed
+        naming = self.__node_naming(node_class, nclass)
+        nclass['node_naming']['node_names'] = [
+            names[instance] if names[instance] is not None
+            else self.__name_from_base(node_class, naming, instance)
+            for instance in range(0, node_count)
+        ]
+
+    @classmethod
+    def __host_naming(cls, node_class, nclass):
+        """Return the 'host_naming' section of the provided node class
+        object. If there is no 'host_naming' section create an empty
+        'host_naming' section with its contents copied from the
+        'node_naming' section. If the 'host_naming' section doesn't
+        have a 'base_name' value, take that value from
+        'node_naming'. Update the configuration with whatever was
+        changed.
+
+        """
+        default = {
+            'hostnames': cls.__node_naming_names(node_class, nclass).copy(),
+            'base_name': nclass['node_naming']['base_name'],
+        }
+        nclass['host_naming'] = (
+            nclass['host_naming'] if nclass.get('host_naming', None)
+            else default
+        )
+        host_naming = nclass['host_naming']
+        host_naming['base_name'] = (
+            host_naming['base_name'] if 'base_name' in host_naming
+            else default['base_name']
+        )
+        return host_naming
+
+    def __init_host_naming(self, node_class):
+        """Simplify the "host_naming" structure in the named node
+        class by completely filling out the 'hostnames' list with
+        names either as they are in the config or as they would be
+        computed based on the 'base_name' field. Since host naming is
+        optional and pulls from node naming when not present or not
+        completely filled out, this must be called only after node
+        naming has been initialized.
+
+        """
+        nclass = self.__get_node_class(node_class, allow_pure=True)
+        if nclass.get('pure_base_class', False):
+            # Don't massage pure base classes...
+            return
+        naming = self.__host_naming(node_class, nclass)
+        names = naming['hostnames']
+        node_count = self.node_count(node_class)
+        needed = node_count - len(names) if len(names) < node_count else 0
+        names += [None] * needed
+        nclass['host_naming']['hostnames'] = [
+            names[instance] if names[instance] is not None
+            else self.__name_from_base(node_class, naming, instance)
+            for instance in range(0, node_count)
+        ]
 
     def get_config(self):
         """Get the full config data stored here.
@@ -191,6 +313,49 @@ class Common:
         """
         return self.build_directory
 
+    def set_node_node_name(self, node_class, instance, name):
+        """When called during the 'prepare' phase, this allows the
+        caller to change the node name (in the
+        'node_naming.node_names' list for the node class) for the
+        specified instance of the specified node class to the
+        specified name.
+
+        """
+        self.__check_node_instance(node_class, instance)
+        nclass = self.__get_node_class(node_class)
+        node_naming = self.__node_naming(node_class, nclass)
+        node_names = node_naming.get('node_names', [])
+        node_names[instance] = name
+        node_naming['node_names'] = node_names
+
+    def node_node_name(self, node_class, instance):
+        """Get the node name (used for naming the virtual machine that
+        implements the Virtual Node) of a given instance of the
+        specified class of Virtual Node. This will also be the core
+        name of a node hostname if there is no separate host naming
+        section in the cnode class.
+
+        """
+        self.__check_node_instance(node_class, instance)
+        nclass = self.__get_node_class(node_class)
+        node_names = self.__node_naming_names(node_class, nclass)
+        return node_names[instance]
+
+    def set_node_hostname(self, node_class, instance, name):
+        """When called during the 'prepare' phase, this allows the
+        caller to change the node name (in the
+        'node_naming.node_names' list for the node class) for the
+        specified instance of the specified node class to the
+        specified name.
+
+        """
+        self.__check_node_instance(node_class, instance)
+        nclass = self.__get_node_class(node_class)
+        host_naming = self.__host_naming(node_class, nclass)
+        hostnames = host_naming.get('hostnames', [])
+        hostnames[instance] = name
+        host_naming['hostnames'] = hostnames
+
     def node_hostname(self, node_class, instance, network_name=None):
         """Get the hostname of a given instance of the specified class
         of Virtual Node on the specified network. If the network is
@@ -199,27 +364,11 @@ class Common:
 
         """
         self.__check_node_instance(node_class, instance)
-        node = self.__get_node(node_class)
-        try:
-            node_naming = node['node_naming']
-        except KeyError as err:
-            raise ContextualError(
-                "virtual node class '%s' has no 'node_naming' "
-                "section." % node_class
-            ) from err
-        try:
-            base_name = node_naming['base_name']
-        except KeyError as err:
-            raise ContextualError(
-                "virtual node class '%s' has no 'base_name' in its "
-                "'node_naming' section" % node_class
-            ) from err
-        node_names = node_naming.get('node_names', [])
+        nclass = self.__get_node_class(node_class)
         return (
-            node_names[instance]
-            if instance < len(node_names)
-            else "%s-%3.3d" % (base_name, instance + 1)
-        ) + self.__hostname_net_suffix(node_class, network_name)
+            nclass['host_naming']['hostnames'][instance] +
+            self.__hostname_net_suffix(node_class, network_name)
+        )
 
     def node_ipv4_addr(self, node_class, instance, network_name):
         """Get the configured IPv4 address (if any) for the specified
@@ -249,18 +398,18 @@ class Common:
         class.
 
         """
-        node = self.__get_node(node_class)
-        return int(node.get('node_count', 0))
+        nclass = self.__get_node_class(node_class)
+        return int(nclass.get('node_count', 0))
 
     def node_networks(self, node_class):
         """Return the list of names of Virtual Networks connected to
         nodes of the specified class.
 
         """
-        node = self.__get_node(node_class)
+        nclass = self.__get_node_class(node_class)
         return [
             network_interface['cluster_network']
-            for _, network_interface in node.get(
+            for _, network_interface in nclass.get(
                     'network_interfaces', {}
             ).items()
             if not network_interface.get('delete', False)

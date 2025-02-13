@@ -266,7 +266,8 @@ cluster:
                 # shown here as 'false' for completeness.
                 delete: false
       node_naming:
-        # This block drives naming of nodes of this type. At a
+        # This block drives naming of nodes of this type within the
+        # context of libvirt (i.e. the virtual machine name). At a
         # minimum, this block must contain a 'base_name' field that
         # specifies the base name for numbered instances of nodes. An
         # optional 'node_names' list may be specified as well. Virtual
@@ -280,6 +281,30 @@ cluster:
         # exist.
         base_name: ubuntu-node
         node_names: []
+      host_naming: {}
+        # This block drives network host naming of nodes of this type. At a
+        # minimum, this block must contain a 'base_name' field that
+        # specifies the base name for numbered instances of nodes. An
+        # optional 'hostnames' list may be specified as well. Virtual
+        # Nodes created from this class will assigned host namesn first
+        # from the list of host names until that is exhausted, then will be
+        # assigned a 'numbered' host name composed as follows:
+        #
+        #     <base-name>-<instance number>
+        #
+        # for all instances for which a 'host_name' entry does not
+        # exist. In adition to the naming rules above, there is also an
+        # optional per-network suffix that can be applied to a host name
+        # to differentiate the host on that network in DNS. See
+        #
+        #    network_interfaces.addr_info.hostname_suffix
+        #
+        # below.
+        #
+        # The following are example values:
+        #
+        # base_name: ubuntu-host
+        # hostnames: []
       network_interfaces:
         # The list of network interfaces to nodes of this type and the
         # configuration for each network connection. These associate

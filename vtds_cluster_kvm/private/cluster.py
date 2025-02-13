@@ -401,7 +401,7 @@ class Cluster(ClusterAPI):
         """Add the contents of the libvirt XML template for
         configuring a node class to the node class. This is done on a
         per-node class basis because it will be more flexible in the
-        long run. For now it is the same data in ever node class,
+        long run. For now it is the same data in every node class,
         which is a bit wasteful, but no big deal.
 
         """

@@ -74,8 +74,17 @@ class VirtualNodes(VirtualNodesBase):
     def node_count(self, node_class):
         return self.common.node_count(node_class)
 
+    def set_node_node_name(self, node_class, instance, name):
+        self.common.set_node_node_name(node_class, instance, name)
+
+    def node_node_name(self, node_class, instance):
+        return self.common.node_node_name(node_class, instance)
+
     def network_names(self, node_class):
         return self.common.node_networks(node_class)
+
+    def set_node_hostname(self, node_class, instance, name):
+        self.common.set_node_hostname(node_class, instance, name)
 
     def node_hostname(self, node_class, instance, network_name=None):
         return self.common.node_hostname(
