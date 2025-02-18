@@ -91,6 +91,9 @@ class VirtualNodes(VirtualNodesBase):
             node_class, instance, network_name
         )
 
+    def node_host_blade_info(self, node_class):
+        return self.common.node_host_blade_info(node_class)
+
     def node_ipv4_addr(self, node_class, instance, network_name):
         return self.common.node_ipv4_addr(node_class, instance, network_name)
 

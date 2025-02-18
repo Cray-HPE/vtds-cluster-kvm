@@ -451,21 +451,27 @@ class Common:
         virtual_blades = self.stack.get_provider_api().get_virtual_blades()
         return virtual_blades.blade_ssh_key_paths(host_blade_class)
 
+    def node_host_blade_info(self, node_class):
+        """Return the information about the host Virtual Blade on which the
+        specified node lives.
+
+        """
+        instance_capacity = self.__host_blade_instance_capacity(node_class)
+        return {
+            'blade_class': self.__host_blade_class(node_class),
+            'instance_capacity': instance_capacity
+        }
+
     def node_host_blade(self, node_class, instance):
         """Get a tuple containing the the blade class and instance
         number of the Virtual Blade that hosts the Virtual Node
         instance 'instance' of the given node class.
 
         """
-        if instance < 0:
-            raise ContextualError(
-                "internal error: requesting the node host blade for a "
-                "negative instance number (%d) of node class '%s'" % (
-                    instance, node_class
-                )
-            )
-        host_blade_class = self.__host_blade_class(node_class)
-        instance_capacity = self.__host_blade_instance_capacity(node_class)
+        self.__check_node_instance(node_class, instance)
+        info = self.node_host_blade_info(node_class)
+        host_blade_class = info['blade_class']
+        instance_capacity = info['instance_capacity']
         return (host_blade_class, int(instance / instance_capacity))
 
     def node_host_blade_ip(self, node_class, node_instance):
