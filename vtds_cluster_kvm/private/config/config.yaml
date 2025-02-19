@@ -169,6 +169,19 @@ cluster:
             pools:
               - start: 10.254.1.0
                 end: 10.254.255.254
+      # Applications sometimes need concrete configuration information
+      # that is most appropriately stored with the objects implemented
+      # within the layers instead of trying to map information onto
+      # those objects abstractly at the application layer. The
+      # application_metadata section of the configuration is only
+      # understood by a given application layer and provides a place to
+      # put such information. The intent here is that a specific
+      # configuration set used for a given application may place
+      # metadata with API objects for use by the application itself. Use
+      # of application_metadata should be done sparingly and with
+      # caution because it has the power to entangle a given vTDS stack
+      # and make it non-portable.
+      application_metadata: {}
   node_classes:
     ubuntu_24_04_node:
       # If 'pure_base_class' is present and 'true' this Virtual Node
@@ -358,3 +371,16 @@ cluster:
               # network. If it is an empty string or unspecified, the
               # node hostname will be used unmodified on this network.
               hostname_suffix: "-mynet"
+      # Applications sometimes need concrete configuration information
+      # that is most appropriately stored with the objects implemented
+      # within the layers instead of trying to map information onto
+      # those objects abstractly at the application layer. The
+      # application_metadata section of the configuration is only
+      # understood by a given application layer and provides a place to
+      # put such information. The intent here is that a specific
+      # configuration set used for a given application may place
+      # metadata with API objects for use by the application itself. Use
+      # of application_metadata should be done sparingly and with
+      # caution because it has the power to entangle a given vTDS stack
+      # and make it non-portable.
+      application_metadata: {}

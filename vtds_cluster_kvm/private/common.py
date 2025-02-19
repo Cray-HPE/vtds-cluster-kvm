@@ -313,6 +313,14 @@ class Common:
         """
         return self.build_directory
 
+    def node_application_metadata(self, node_class):
+        """Retrieve the Application Metadata for a named Node Class
+        from the configuration.
+
+        """
+        nclass = self.__get_node_class(node_class)
+        return nclass.get('application_metadata', {})
+
     def set_node_node_name(self, node_class, instance, name):
         """When called during the 'prepare' phase, this allows the
         caller to change the node name (in the
