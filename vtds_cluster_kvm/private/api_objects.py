@@ -71,16 +71,31 @@ class VirtualNodes(VirtualNodesBase):
             if not node_class.get('pure_base_class', False)
         ]
 
+    def application_metadata(self, node_class):
+        return self.common.node_application_metadata(node_class)
+
     def node_count(self, node_class):
         return self.common.node_count(node_class)
 
+    def set_node_node_name(self, node_class, instance, name):
+        self.common.set_node_node_name(node_class, instance, name)
+
+    def node_node_name(self, node_class, instance):
+        return self.common.node_node_name(node_class, instance)
+
     def network_names(self, node_class):
         return self.common.node_networks(node_class)
+
+    def set_node_hostname(self, node_class, instance, name):
+        self.common.set_node_hostname(node_class, instance, name)
 
     def node_hostname(self, node_class, instance, network_name=None):
         return self.common.node_hostname(
             node_class, instance, network_name
         )
+
+    def node_host_blade_info(self, node_class):
+        return self.common.node_host_blade_info(node_class)
 
     def node_ipv4_addr(self, node_class, instance, network_name):
         return self.common.node_ipv4_addr(node_class, instance, network_name)
@@ -191,6 +206,10 @@ class VirtualNetworks(VirtualNetworksBase):
 
     def network_names(self):
         return self.networks_by_name.keys()
+
+    def application_metadata(self, network_name):
+        network = self.__network_by_name(network_name)
+        return network.get('application_metadata', {})
 
     def ipv4_cidr(self, network_name):
         l3_config = self.__l3_config(network_name, 'AF_INET')

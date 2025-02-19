@@ -169,6 +169,19 @@ cluster:
             pools:
               - start: 10.254.1.0
                 end: 10.254.255.254
+      # Applications sometimes need concrete configuration information
+      # that is most appropriately stored with the objects implemented
+      # within the layers instead of trying to map information onto
+      # those objects abstractly at the application layer. The
+      # application_metadata section of the configuration is only
+      # understood by a given application layer and provides a place to
+      # put such information. The intent here is that a specific
+      # configuration set used for a given application may place
+      # metadata with API objects for use by the application itself. Use
+      # of application_metadata should be done sparingly and with
+      # caution because it has the power to entangle a given vTDS stack
+      # and make it non-portable.
+      application_metadata: {}
   node_classes:
     ubuntu_24_04_node:
       # If 'pure_base_class' is present and 'true' this Virtual Node
@@ -266,7 +279,8 @@ cluster:
                 # shown here as 'false' for completeness.
                 delete: false
       node_naming:
-        # This block drives naming of nodes of this type. At a
+        # This block drives naming of nodes of this type within the
+        # context of libvirt (i.e. the virtual machine name). At a
         # minimum, this block must contain a 'base_name' field that
         # specifies the base name for numbered instances of nodes. An
         # optional 'node_names' list may be specified as well. Virtual
@@ -280,6 +294,30 @@ cluster:
         # exist.
         base_name: ubuntu-node
         node_names: []
+      host_naming: {}
+        # This block drives network host naming of nodes of this type. At a
+        # minimum, this block must contain a 'base_name' field that
+        # specifies the base name for numbered instances of nodes. An
+        # optional 'hostnames' list may be specified as well. Virtual
+        # Nodes created from this class will assigned host namesn first
+        # from the list of host names until that is exhausted, then will be
+        # assigned a 'numbered' host name composed as follows:
+        #
+        #     <base-name>-<instance number>
+        #
+        # for all instances for which a 'host_name' entry does not
+        # exist. In adition to the naming rules above, there is also an
+        # optional per-network suffix that can be applied to a host name
+        # to differentiate the host on that network in DNS. See
+        #
+        #    network_interfaces.addr_info.hostname_suffix
+        #
+        # below.
+        #
+        # The following are example values:
+        #
+        # base_name: ubuntu-host
+        # hostnames: []
       network_interfaces:
         # The list of network interfaces to nodes of this type and the
         # configuration for each network connection. These associate
@@ -333,3 +371,16 @@ cluster:
               # network. If it is an empty string or unspecified, the
               # node hostname will be used unmodified on this network.
               hostname_suffix: "-mynet"
+      # Applications sometimes need concrete configuration information
+      # that is most appropriately stored with the objects implemented
+      # within the layers instead of trying to map information onto
+      # those objects abstractly at the application layer. The
+      # application_metadata section of the configuration is only
+      # understood by a given application layer and provides a place to
+      # put such information. The intent here is that a specific
+      # configuration set used for a given application may place
+      # metadata with API objects for use by the application itself. Use
+      # of application_metadata should be done sparingly and with
+      # caution because it has the power to entangle a given vTDS stack
+      # and make it non-portable.
+      application_metadata: {}

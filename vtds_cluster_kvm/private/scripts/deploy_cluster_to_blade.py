@@ -1008,10 +1008,11 @@ class VirtualNode:
         self.networks = networks
         self.node_instance = node_instance
         self.hostname = self.__compute_hostname()
+        self.node_name = self.__compute_node_name()
         self.nodeclass_dir = path_join(
             os.sep, 'var', 'local', 'vtds', self.class_name
         )
-        self.host_dir = path_join(self.nodeclass_dir, self.hostname)
+        self.host_dir = path_join(self.nodeclass_dir, self.node_name)
         makedirs(self.host_dir, mode=0o755, exist_ok=True)
         self.boot_disk_name = None
         try:
@@ -1025,36 +1026,29 @@ class VirtualNode:
             ) from err
         self.context = self.__compose()
 
+    def __compute_node_name(self):
+        """Based on the naming information in the node_class compose a
+        node name for this instance of the node_class and return it as
+        a string.
+
+        Since all of the magic to make sure node names are set up has
+        already been done by the preparation of the config, just use
+        the hostnames that are there. No need to be fancy about it.
+
+        """
+        return self.node_class['node_naming']['node_names'][self.node_instance]
+
     def __compute_hostname(self):
         """Based on the naming information in the node_class compose a
         host name for this instance of the node_class and return it as
         a string.
 
+        Since all of the magic to make sure hostnames are set up has
+        already been done by the preparation of the config, just use
+        the hostnames that are there. No need to be fancy about it.
+
         """
-        try:
-            node_naming = self.node_class['node_naming']
-        except KeyError as err:
-            raise ContextualError(
-                "configuration error: Virtual Node class '%s' doesn't have "
-                "a 'node_naming' section: %s" % (
-                    self.class_name, str(self.node_class)
-                )
-            ) from err
-        try:
-            base_name = node_naming['base_name']
-        except KeyError as err:
-            raise ContextualError(
-                "configuration error: Virtual Node class '%s' has no "
-                "'base_name' in its 'node_naming' section: %s" % (
-                    self.class_name(), str(self.node_class)
-                )
-            ) from err
-        node_names = node_naming.get('node_names', [])
-        return (
-            node_names[self.node_instance]
-            if self.node_instance < len(node_names)
-            else "%s-%3.3d" % (base_name, int(self.node_instance) + 1)
-        )
+        return self.node_class['host_naming']['hostnames'][self.node_instance]
 
     def __node_ipv4(self, network):
         """Get the IPv4 address of this node on the named network if
@@ -1071,14 +1065,14 @@ class VirtualNode:
         if not interface_candidates:
             raise ContextualError(
                 "there is no network interface for network '%s' in %s" % (
-                    network, self.hostname
+                    network, self.node_name
                 )
             )
         if len(interface_candidates) > 1:
             raise ContextualError(
                 "there is more than one network interface for "
                 "network '%s' in %s" % (
-                    network, self.hostname
+                    network, self.node_name
                 )
             )
         interface = interface_candidates[0]
@@ -1463,7 +1457,7 @@ class VirtualNode:
                 "class '%s': %s " % (self.class_name, str(self.node_class))
             ) from err
         return {
-            'hostname': self.hostname,
+            'hostname': self.node_name,
             'uuid': str(uuid4()),
             'memsize_kib': memsize,
             'cpus': cpus,
@@ -1499,7 +1493,7 @@ class VirtualNode:
             tmpfile.write(vm_xml)
             tmpfile.flush()
             run_cmd('virsh', ['define', tmpfile.name])
-            run_cmd('virsh', ['start', self.hostname])
+            run_cmd('virsh', ['start', self.node_name])
 
     def wait_for_ssh(self):
         """Wait for the node to be up and listening on the SSH port
@@ -1562,14 +1556,14 @@ class VirtualNode:
     def stop(self):
         """Stop but do not undefine the Virtual Node.
         """
-        run_cmd('virsh', ['destroy', self.hostname], check=False)
+        run_cmd('virsh', ['destroy', self.node_name], check=False)
 
     def remove(self):
         """Stop and undefine the Virtual Node.
 
         """
         self.stop()
-        run_cmd('virsh', ['undefine', self.hostname], check=False)
+        run_cmd('virsh', ['undefine', self.node_name], check=False)
 
 
 class KeaDHCP4:
