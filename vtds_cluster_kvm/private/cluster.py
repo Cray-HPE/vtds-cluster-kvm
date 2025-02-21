@@ -190,21 +190,21 @@ class Cluster(ClusterAPI):
             )
         return netname
 
-    def __get_l3_config(self, network, family):
+    def __get_address_family(self, network, family):
         """Look up the L3 configuration for the specified address
         family in the specified network.
 
         """
-        l3_configs = network.get('l3_configs', None)
-        if l3_configs is None:
+        address_families = network.get('address_families', None)
+        if address_families is None:
             raise ContextualError(
                 "configuration error: network '%s' has no "
-                "'l3_configs' section" % self.__net_name(network)
+                "'address_families' section" % self.__net_name(network)
             )
         candidates = [
-            l3_config
-            for _, l3_config in l3_configs.items()
-            if l3_config.get('family', None) == family
+            address_family
+            for _, address_family in address_families.items()
+            if address_family.get('family', None) == family
         ]
         if not candidates:
             raise ContextualError(
@@ -223,8 +223,8 @@ class Cluster(ClusterAPI):
         there is none.
 
         """
-        l3_config = self.__get_l3_config(network, 'AF_INET')
-        cidr = l3_config.get('cidr', None)
+        address_family = self.__get_address_family(network, 'AF_INET')
+        cidr = address_family.get('cidr', None)
         if cidr is None:
             raise ContextualError(
                 "configuration error: AF_INET L3 configuration for "
@@ -272,17 +272,25 @@ class Cluster(ClusterAPI):
             )
         # Connect the host_blade_network to all blades of all classes.
         blade_classes = virtual_blades.blade_classes()
-        l3_config = self.__get_l3_config(host_blade_network, 'AF_INET')
-        l3_config['connected_blades'] = [
+        host_blade_network['connected_blades'] = [
             {
                 'blade_class': blade_class,
                 'blade_instances': [
                     *range(0, virtual_blades.blade_count(blade_class))
                 ],
+            }
+            for blade_class in blade_classes
+        ]
+        address_family = self.__get_address_family(
+            host_blade_network, 'AF_INET'
+        )
+        address_family['connected_blades'] = [
+            {
                 # All blade IPs are the '.1' address of the
                 # network. We need one copy of that value per blade
                 # instance.
-                'blade_ips': [blade_ip] * virtual_blades.blade_count(
+                'blade_class': blade_class,
+                'addresses': [blade_ip] * virtual_blades.blade_count(
                     blade_class
                 ),
                 'dhcp_server_instance': None,
@@ -339,13 +347,15 @@ class Cluster(ClusterAPI):
             node_classes[key] = expanded_config
 
     @staticmethod
-    def __random_mac(prefix="52:54:00"):
+    def __random_mac(prefix=None):
         """Generate a MAC address using a specified prefix specified
         as a string containing colon separated hexadecimal octet
         values for the length of the desired prefix. By default use
-        the KVM reserved prefix '52:54:00'.
+        the KVM reserved, locally administered, unicast prefix
+        '52:54:00'.
 
         """
+        prefix = prefix if prefix is not None else "52:54:00"
         try:
             prefix_octets = [
                 int(octet, base=16) for octet in prefix.split(':')
@@ -366,7 +376,7 @@ class Cluster(ClusterAPI):
         ]
         return ":".join(["%2.2x" % octet for octet in mac_binary])
 
-    def __add_mac_addresses(self, node_class):
+    def __add_mac_addresses(self, node_class, prefix=None):
         """Compute MAC address for every Virtual Node interface and
         overlay an 'addr_info.layer_2' that has AF_PACKET as its
         address family, and a list of MAC addresses in it. If that
@@ -387,7 +397,7 @@ class Cluster(ClusterAPI):
             existing_macs = layer_2.get('addresses', [])[0:node_count]
             existing_count = len(existing_macs)
             layer_2['addresses'] = existing_macs + [
-                self.__random_mac()
+                self.__random_mac(prefix)
                 for i in range(0, node_count - existing_count)
             ]
             interface['addr_info'] = (
@@ -417,6 +427,113 @@ class Cluster(ClusterAPI):
         for _, node_class in node_classes.items():
             self.__add_mac_addresses(node_class)
 
+    @classmethod
+    def __underlay_mac_addrs(cls, addrs, length, prefix=None):
+        """Fill in each missing (i.e. None or unpopulated) entry in
+        'addrs' (up to length entries) with a generated MAC address
+        and return the resulting list.
+
+        """
+        return [
+            addrs[i]
+            if i < len(addrs) and addrs[i] is not None
+            else cls.__random_mac(prefix)
+            for i in range(0, length)
+        ]
+
+    def __set_connected_blade_macs(self, network, prefix=None):
+        """Compute and inject MAC addresses for the connected blades on a
+        given virtual network as part of a newly generated 'AF_PACKET'
+        address family within the network.
+
+        """
+        # Get a map of blade classes to their corresponding blade
+        # instance lists to use since that is less cumbersome than the
+        # connected_blades list.
+        blade_map = {
+            blade['blade_class']: blade['blade_instances']
+            for blade in network.get('connected_blades', [])
+            if 'blade_class' in blade and 'blade_instances' in blade
+        }
+        # Find the AF_PACKET address family (if there is one) in the
+        # network so we can underlay whatever it has with the MAC
+        # addresses we are going to generate.
+        address_families = network.get('address_families', {})
+        packet_families = [
+            (key, family)
+            for key, family in address_families.items()
+            if family.get('family', None) == 'AF_PACKET'
+        ]
+        if len(packet_families) > 1:
+            network_name = network.get('network_name', "<unspecified name>")
+            raise ContextualError(
+                "Virtual Network '%s' is configured with more than one "
+                "address family using AF_PACKET" % network_name
+            )
+        key, family = (
+            packet_families[0] if len(packet_families) > 0
+            else (
+                'link',
+                {
+                    'family': 'AF_PACKET',
+                    'connected_blades': [],
+                }
+            )
+        )
+        # Now get a map of connected blade MAC address lists whose
+        # blade_classes match a connected blade in the other map
+        # indexed blade_class from what is already configured in the
+        # address family (if any)
+        family_populated_map = {
+            blade['blade_class']: blade
+            for blade in family.get('connected_blades', [])
+            if 'blade_class' in blade and blade['blade_class'] in blade_map
+        }
+        # Now, go through what we found in the address family (if
+        # anything) and underlay it with generated MAC addresses. This
+        # will leave only unpopulated connected blades in the
+        # 'blade_map'...
+        populated_classes = [
+            {
+                'blade_class': blade_class,
+                'addresses': self.__underlay_mac_addrs(
+                    blade.get('addresses', []),
+                    len(blade_map.pop(blade_class)),
+                    prefix
+                )
+            }
+            for blade_class, blade in family_populated_map.items()
+        ]
+        # ... and make up a list of newly populated connected blade classes.
+        new_classes = [
+            {
+                'blade_class': blade_class,
+                'addresses': self.__underlay_mac_addrs([], len(instances))
+            }
+            for blade_class, instances in blade_map.items()
+        ]
+        family['connected_blades'] = populated_classes + new_classes
+        # Put it all back just to be sure we are getting it right. If
+        # there was nothing there before, this will make sure it is
+        # there now.
+        address_families[key] = family
+        network['address_families'] = address_families
+
+    def __set_all_connected_blade_macs(
+            self, blade_config, prefix=None
+    ):
+        """Compute and inject MAC addresses for connected blades on
+        each of the virtual networks as part of a, possibly newly
+        generated, 'AF_PACKET' address family within each network. The
+        MAC addresses are underlaid, so, if the configuration already
+        contains some or all of them pre-configured, only the missing
+        ones will be filled in.
+
+        """
+        networks = blade_config.get('networks', {})
+        for _, network in networks.items():
+            self.__set_connected_blade_macs(network, prefix)
+
     def prepare(self):
         self.provider_api = self.stack.get_provider_api()
         self.platform_api = self.stack.get_platform_api()
@@ -424,6 +541,7 @@ class Cluster(ClusterAPI):
         blade_config = self.config
         self.__expand_node_classes(blade_config)
         self.__set_node_mac_addresses(blade_config)
+        self.__set_all_connected_blade_macs(blade_config)
         networks = self.config.get('networks', {})
         blade_config['networks'] = {
             key: self.__add_endpoint_ips(network)

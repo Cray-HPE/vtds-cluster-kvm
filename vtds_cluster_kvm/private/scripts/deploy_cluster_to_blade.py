@@ -247,26 +247,39 @@ def connected_blade_instances(network, blade_class):
     network and blade class.
 
     """
-    l3_config = find_l3_config(network, 'AF_INET')
     return [
         int(blade_instance)
-        for blade in l3_config.get('connected_blades', [])
+        for blade in network.get('connected_blades', [])
         if blade.get('blade_class', None) == blade_class
         for blade_instance in blade.get('blade_instances', [])
     ]
 
 
 def connected_blade_ipv4s(network, blade_class):
-    """Get the list of conencted blade instance numbers for a given
+    """Get the list of conencted blade IP addresses for a given
     network and blade class.
 
     """
-    l3_config = find_l3_config(network, 'AF_INET')
+    address_family = find_address_family(network, 'AF_INET')
     return [
         ipv4_addr
-        for blade in l3_config.get('connected_blades', [])
+        for blade in address_family.get('connected_blades', [])
         if blade.get('blade_class', None) == blade_class
-        for ipv4_addr in blade.get('blade_ips', [])
+        for ipv4_addr in blade.get('addresses', [])
+    ]
+
+
+def connected_blade_macs(network, blade_class):
+    """Get the list of conencted blade IP addresses for a given
+    network and blade class.
+
+    """
+    address_family = find_address_family(network, 'AF_LINK')
+    return [
+        mac
+        for blade in address_family.get('connected_blades', [])
+        if blade.get('blade_class', None) == blade_class
+        for mac in blade.get('blade_macs', [])
     ]
 
 
@@ -287,7 +300,7 @@ def network_blade_ipv4(network, blade_class, blade_instance):
     """
     instances = connected_blade_instances(network, blade_class)
     ipv4s = connected_blade_ipv4s(network, blade_class)
-    count = len(instances) if len(instances) >= len(ipv4s) else len(ipv4s)
+    count = len(instances) if len(instances) <= len(ipv4s) else len(ipv4s)
     candidates = [
         ipv4s[i] for i in range(0, count)
         if blade_instance == instances[i]
@@ -300,7 +313,7 @@ def network_ipv4_gateway(network):
     specified network. If no gateway is configured, return None.
 
     """
-    return find_l3_config(network, 'AF_INET').get('gateway', None)
+    return find_address_family(network, 'AF_INET').get('gateway', None)
 
 
 def is_nat_router(network, blade_class, blade_instance):
@@ -322,10 +335,10 @@ def is_dhcp_server(network, blade_class, blade_instance):
     hosts the gateway for that network).
 
     """
-    l3_config = find_l3_config(network, 'AF_INET')
+    address_family = find_address_family(network, 'AF_INET')
     candidates = [
         blade
-        for blade in l3_config.get('connected_blades', [])
+        for blade in address_family.get('connected_blades', [])
         if blade.get('blade_class', None) == blade_class and
         blade.get('dhcp_server_instance', None) == blade_instance
     ]
@@ -424,48 +437,50 @@ def find_addr_info(interface, family):
     return addr_infos[0]
 
 
-def find_l3_config(network, family):
+def find_address_family(network, family):
     """Find the L3 configuration for the specified address family
     ('family') in the provided network configuration ('network').
 
     """
     netname = net_name(network)
-    # There should be exactly one 'l3_config' block in the network
+    # There should be exactly one 'address_family' block in the network
     # with the specified family.
-    l3_configs = [
-        l3_config
-        for _, l3_config in network.get('l3_configs', {}).items()
-        if l3_config.get('family', None) == family
+    address_families = [
+        address_family
+        for _, address_family in network.get('address_families', {}).items()
+        if address_family.get('family', None) == family
     ]
-    if len(l3_configs) > 1:
+    if len(address_families) > 1:
         raise ContextualError(
             "configuration error: the Virtual Network named '%s' has more "
-            "than one %s 'l3_config' block." % (netname, family)
+            "than one %s 'address_family' block." % (netname, family)
         )
-    if not l3_configs:
+    if not address_families:
         raise ContextualError(
             "configuration error: the Virtual Network named '%s' has "
-            "no %s 'l3_config' block." % (netname, family)
+            "no %s 'address_family' block." % (netname, family)
         )
-    return l3_configs[0]
+    return address_families[0]
 
 
-def network_length(l3_config, netname):
-    """Given an l3_config ('l3_config') from a network named 'netname'
-    return the network length from its 'cidr' element.
+def network_length(address_family, netname):
+    """Given an address_family ('address_family') from a network named
+    'netname' return the network length from its 'cidr' element.
 
     """
-    if 'cidr' not in l3_config:
+    if 'cidr' not in address_family:
         raise ContextualError(
-            "configuration error: the AF_INET 'l3_config' block for the "
+            "configuration error: the AF_INET 'address_family' block for the "
             "network named '%s' has no 'cidr' configured" % netname
         )
-    if '/' not in l3_config['cidr']:
+    if '/' not in address_family['cidr']:
         raise ContextualError(
             "configuration error: the AF_INET 'cidr' value '%s' for the "
-            "network named '%s' is malformed" % (l3_config['cidr'], netname)
+            "network named '%s' is malformed" % (
+                address_family['cidr'], netname
+            )
         )
-    return l3_config['cidr'].split('/')[1]
+    return address_family['cidr'].split('/')[1]
 
 
 def find_blade_cidr(network, blade_class, blade_instance):
@@ -476,10 +491,10 @@ def find_blade_cidr(network, blade_class, blade_instance):
     then return None.
 
     """
-    l3_config = find_l3_config(network, "AF_INET")
+    address_family = find_address_family(network, "AF_INET")
     blade_ip = network_blade_ipv4(network, blade_class, blade_instance)
     return (
-        '/'.join((blade_ip, network_length(l3_config, net_name(network))))
+        '/'.join((blade_ip, network_length(address_family, net_name(network))))
         if blade_ip is not None else None
     )
 
@@ -670,7 +685,7 @@ def install_nat_rule(network):
 
     """
     dest_if = find_interconnect_interface()
-    cidr = find_l3_config(network, 'AF_INET')['cidr']
+    cidr = find_address_family(network, 'AF_INET')['cidr']
     run_cmd(
         'iptables',
         [
@@ -1334,8 +1349,8 @@ class VirtualNode:
         ipv4_info = find_addr_info(interface, "AF_INET")
         mac_addrs = node_mac_addrs(interface)
         addresses = ipv4_info.get('addresses', [])
-        l3_config = find_l3_config(network, "AF_INET")
-        net_length = network_length(l3_config, netname)
+        address_family = find_address_family(network, "AF_INET")
+        net_length = network_length(address_family, netname)
         try:
             mode = ipv4_info['mode']
         except KeyError as err:
@@ -1617,21 +1632,21 @@ class KeaDHCP4:
             ]
         return reservations
 
-    def __compose_subnet(self, blade_if, l3_config, interfaces):
+    def __compose_subnet(self, blade_if, address_family, interfaces):
         """Based on a network's l3 configuration block, compose the
         DCP4 subnet configuration for Kea.
 
         """
         pools = [
             {'pool': "%s - %s" % (pool['start'], pool['end'])}
-            for pool in l3_config['dhcp'].get('pools', [])
+            for pool in address_family['dhcp'].get('pools', [])
         ]
         try:
-            cidr = l3_config['cidr']
+            cidr = address_family['cidr']
         except KeyError as err:
             raise ContextualError(
-                "configuration error: network l3_config %s "
-                "has no 'cidr' element" % str(l3_config)
+                "configuration error: network address_family %s "
+                "has no 'cidr' element" % str(address_family)
             ) from err
         subnet = {
             'pools': pools,
@@ -1640,7 +1655,7 @@ class KeaDHCP4:
             'reservations': self.__compose_reservations(interfaces),
             'option-data': []
         }
-        gateway = l3_config.get('gateway', None)
+        gateway = address_family.get('gateway', None)
         if gateway:
             subnet['option-data'].append(
                 {
@@ -1648,7 +1663,7 @@ class KeaDHCP4:
                     'data': gateway,
                 },
             )
-        nameservers = l3_config.get('name_servers', [])
+        nameservers = address_family.get('name_servers', [])
         if nameservers:
             subnet['option-data'].append(
                 {
@@ -1661,8 +1676,8 @@ class KeaDHCP4:
     def __compose_network(self, network):
         """Compose the base Kea DHCP4 configuration for the provided
         network and return it. A network may be a set of subnets,
-        based on 'l3_config' blocks, so treat each AF_INET 'l3_config'
-        block as its own subnet.
+        based on 'address_family' blocks, so treat each AF_INET
+        'address_family' block as its own subnet.
 
         """
         # Further filter network interfaces to get only those that
@@ -1673,10 +1688,10 @@ class KeaDHCP4:
             if if_network(interface) == net_name(network)
         ]
         blade_if = blade_ipv4_ifname(network)
-        l3_config = find_l3_config(network, 'AF_INET')
+        address_family = find_address_family(network, 'AF_INET')
         subnet = (
-            self.__compose_subnet(blade_if, l3_config, interfaces)
-            if l3_config.get('dhcp', {}) else None
+            self.__compose_subnet(blade_if, address_family, interfaces)
+            if address_family.get('dhcp', {}) else None
         )
         return [subnet] if subnet is not None else []
 

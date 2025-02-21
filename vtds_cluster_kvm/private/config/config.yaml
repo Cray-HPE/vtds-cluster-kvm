@@ -46,7 +46,7 @@ cluster:
     # Virtual Network. Since this is a blade_local network, there is
     # no underlying interconnect. Set this to null.
     blade_interconnect: null
-    l3_configs:
+    address_families:
       ipv4:
         family: AF_INET
         # By default we take a /16 network from a (hopefully) low
@@ -117,7 +117,22 @@ cluster:
       # The name of the Blade Interconnect network underlying this
       # Virtual Network. Set this to null for blade-local networks.
       blade_interconnect: base-interconnect
-      l3_configs:
+      # Connected blades lists the blades that are connected to
+      # the Virtual Network (by default no blade is connected). If
+      # you are going to have a blade provided DHCP server on one
+      # of the blades for this network, that blade (class and
+      # instance) must be a connected blade. For a blade-local
+      # network to exist on a blade, that blade (class and
+      # instance) must be in the set of connected blades.
+      connected_blades:
+        # Connected blades are grouped by blade class and
+        # identified by instance numbers.
+        - blade_class: base-blade
+          blade_instances:
+            - 0
+      # Configuration for things that are specific to a given address
+      # family being used on the network.
+      address_families:
         ipv4:
           family: AF_INET
           cidr: 10.254.0.0/16
@@ -126,25 +141,16 @@ cluster:
             - 10.1.1.1
             - 10.1.1.2
             - 10.1.1.3
-          # Connected blades lists the blades that are connected to
-          # the Virtual Network (by default no blade is connected). If
-          # you are going to have a blade provided DHCP server on one
-          # of the blades for this network, that blade (class and
-          # instance) must be a connected blade. For a blade-local
-          # network to exist on a blade, that blade (class and
-          # instance) must be in the set of connected blades.
+          # Connected blades are assigned IP addresses by blade class
+          # which are indexed by instance number.
           connected_blades:
-            # Connected blades are grouped by blade class and
-            # identified by instance numbers.
             - blade_class: base-blade
-              blade_instances:
-                - 0
               # Each connected blade instance is assigned an IP
               # address on the Virtual Network using the following
               # list of blade IPs matched one-to-one with blade
               # instances. If either list runs out early, no IP
               # address is assigned to remaining blade instances..
-              blade_ips:
+              addresses:
                 - 10.254.0.1
               # If this blade class provides a DHCP server on this
               # Virtual Network, the blade instance where the DHCP

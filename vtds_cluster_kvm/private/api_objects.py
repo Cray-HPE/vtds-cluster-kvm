@@ -189,18 +189,20 @@ class VirtualNetworks(VirtualNetworksBase):
             )
         return self.networks_by_name[network_name]
 
-    def __l3_config(self, network_name, family):
-        """Get the l3_info block for the specified address family from
+    def __address_family(self, network_name, family):
+        """Get the address_family block for the specified address family from
         the network of the specified name.  If the network doesn't
-        exist raise an exception. If there is no matching l3_info,
+        exist raise an exception. If there is no matching address_family,
         return None.
 
         """
         network = self.__network_by_name(network_name)
         candidates = [
-            l3_info
-            for _, l3_info in network.get('l3_configs', {}).items()
-            if l3_info.get('family', None) == family
+            address_family
+            for _, address_family in network.get(
+                    'address_families', {}
+            ).items()
+            if address_family.get('family', None) == family
         ]
         return candidates[0] if candidates else None
 
@@ -212,10 +214,10 @@ class VirtualNetworks(VirtualNetworksBase):
         return network.get('application_metadata', {})
 
     def ipv4_cidr(self, network_name):
-        l3_config = self.__l3_config(network_name, 'AF_INET')
-        if l3_config is None:
+        address_family = self.__address_family(network_name, 'AF_INET')
+        if address_family is None:
             return None
-        return l3_config.get('cidr', None)
+        return address_family.get('cidr', None)
 
     def non_cluster_network(self, network_name):
         network = self.__network_by_name(network_name)
