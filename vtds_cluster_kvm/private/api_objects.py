@@ -49,7 +49,8 @@ from vtds_base.layers.cluster import (
     NodeConnectionBase,
     NodeConnectionSetBase,
     NodeSSHConnectionBase,
-    NodeSSHConnectionSetBase
+    NodeSSHConnectionSetBase,
+    AddressingBase
 )
 
 
@@ -99,6 +100,19 @@ class VirtualNodes(VirtualNodesBase):
 
     def node_ipv4_addr(self, node_class, instance, network_name):
         return self.common.node_ipv4_addr(node_class, instance, network_name)
+
+    def node_class_addressing(self, node_class, network_name):
+        # The connected instances for a node class on a given network
+        # are just all of the instances in the node count if that
+        # network is connected. Otherwise, there are none.
+        connected_instances = list(range(0, self.node_count(node_class)))
+        address_families = self.common.node_address_families(
+            node_class, network_name
+        )
+        return (
+            Addressing(connected_instances, address_families)
+            if address_families is not None else None
+        )
 
     def node_ssh_key_secret(self, node_class):
         return self.common.node_ssh_key_secret(node_class)
@@ -189,18 +203,20 @@ class VirtualNetworks(VirtualNetworksBase):
             )
         return self.networks_by_name[network_name]
 
-    def __l3_config(self, network_name, family):
-        """Get the l3_info block for the specified address family from
+    def __address_family(self, network_name, family):
+        """Get the address_family block for the specified address family from
         the network of the specified name.  If the network doesn't
-        exist raise an exception. If there is no matching l3_info,
+        exist raise an exception. If there is no matching address_family,
         return None.
 
         """
         network = self.__network_by_name(network_name)
         candidates = [
-            l3_info
-            for _, l3_info in network.get('l3_configs', {}).items()
-            if l3_info.get('family', None) == family
+            address_family
+            for _, address_family in network.get(
+                    'address_families', {}
+            ).items()
+            if address_family.get('family', None) == family
         ]
         return candidates[0] if candidates else None
 
@@ -212,14 +228,40 @@ class VirtualNetworks(VirtualNetworksBase):
         return network.get('application_metadata', {})
 
     def ipv4_cidr(self, network_name):
-        l3_config = self.__l3_config(network_name, 'AF_INET')
-        if l3_config is None:
+        address_family = self.__address_family(network_name, 'AF_INET')
+        if address_family is None:
             return None
-        return l3_config.get('cidr', None)
+        return address_family.get('cidr', None)
 
     def non_cluster_network(self, network_name):
         network = self.__network_by_name(network_name)
         return network.get('non_cluster', False)
+
+    def blade_class_addressing(self, blade_class, network_name):
+        network = self.__network_by_name(network_name)
+        candidates = [
+            candidate.get('blade_instances', [])
+            for candidate in network.get('connected_blades', [])
+            if candidate.get('blade_class', None) == blade_class
+        ]
+        if len(candidates > 1):
+            raise ContextualError(
+                "the vTDS cluster network '%s' configuration is populated "
+                "with more than one list of connected blades for blade "
+                "class '%s'" % (
+                    network_name, blade_class
+                )
+            )
+        connected_instances = candidates[0] if len(candidates) > 0 else []
+        address_families = [
+            {
+                'family': family['family'],
+                'addresses': family['addresses']
+            }
+            for family in network.get('address_families', [])
+            if 'family' in family and 'addresses' in family
+        ]
+        return Addressing(connected_instances, address_families)
 
 
 # pylint: disable=too-many-instance-attributes
@@ -810,3 +852,53 @@ class NodeSSHConnectionSet(NodeSSHConnectionSetBase, NodeConnectionSet):
                     "\n\n    ".join(errors)
                 )
             )
+
+
+class Addressing(AddressingBase):
+    """Addressing information for node and blade classes. This
+    contains all addressing by address family for instances of node
+    class or blade classes as assigned at the cluster level.
+
+    """
+    def __init__(self, connected_instances, address_families):
+        """Constructor
+        """
+        self.connected_instances = connected_instances.copy()
+        # Our local address_families contains, for each address
+        # family, an expanded list of addresses indexed by instance
+        # number. The incoming address_families contains a compressed
+        # list of addresses that lines up with the list of instances
+        # in the object. Expand the list here, filling in None for any
+        # instance numbers that are not in the list of instances.
+        tmp = self.connected_instances.copy()
+        address_families = address_families.copy()  # So we can muck with it...
+        tmp.sort()  # So the highest numbered instance is in [-1]
+        top_instance = tmp[-1]
+        self.families = {
+            family['family']: [
+                family['addresses'].pop(0)
+                if instance in self.connected_instances else None
+                for instance in range(0, top_instance)
+            ]
+            for family in address_families
+            if 'family' in family and 'addresses' in family
+        }
+
+    def address(self, family, instance):
+        return (
+            self.addresses(family)[instance]
+            if instance in self.connected_instances
+            else None
+        )
+
+    def addresses(self, family):
+        return self.families.get(family, [])
+
+    def address_families(self):
+        return [
+            family
+            for family, _ in self.families.items()
+        ]
+
+    def instances(self):
+        return self.connected_instances.copy()

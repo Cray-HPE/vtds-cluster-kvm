@@ -510,6 +510,26 @@ class Common:
             )
         return addrs[node_instance]
 
+    def node_address_families(self, node_class, network_name):
+        """Compose an 'address_families' list suitable to use in
+        composing an Addressing object from information found in a
+        given node_class.
+
+        """
+        node_networks = self.node_networks(node_class)
+        if network_name not in node_networks:
+            return None
+        network_interface = self.__get_node_interface(node_class, network_name)
+        addr_info = network_interface.get('addr_info', {})
+        return [
+            {
+                'family': family['family'],
+                'addresses': family['addresses']
+            }
+            for _, family in addr_info.items()
+            if 'family' in family and 'addresses' in family
+        ]
+
     def node_host_blade_connection(
             self, node_class, node_instance, remote_port
     ):
