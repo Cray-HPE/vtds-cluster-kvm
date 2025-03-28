@@ -10,17 +10,15 @@ vTDS cluster. The plugin includes an implementation of the vTDS
 Cluster layer API and a base configuration. The API implementation can
 be used on top of any combination of vTDS Provider and vTDS Platform
 implementations to manage a vTDS system at the cluster level. The base
-configuration supplied here, if used unchanged, will create a cluster
-of an Allpication layer specified number of KVM Linux VM Virtual
-Nodes running on a Virtual Node Interconnect using a VxLAN overlay
-over the top of an Application layer specified set of provider and
-platform supplied Blade Interconnect network underlays. Application
-specific configuration like the numbmer and names of Virtual Nodes and
-Virtual Blades, IP Addressing on the Blade Interconnect the Virtual
-Node Interconnect networks, routing into the Virtual Node
-Interconnect, virtual IP addresses, external network connectivity,
-host-names, and so forth are driven from the Application layer of the
-vTDS architecture.
+configuration supplied here. The base configuration defines a single
+node class (`ubuntu_24_04_node`) with zero node instances. To get a
+maningful result, therefore, it is necessary to overlay the
+the value in `cluster.node_classes.ubuntu_24_04_node.node_count` with
+a non-zero value. With that overlay, the base configuration will
+deploy the requested number of KVM Linux VM Virtual Nodes running
+on a Virtual Node Interconnect using a VxLAN overlay
+over the top of the configured set of provider and
+platform supplied Blade Interconnect network underlays.
 
 The core driver mechanism and a brief introduction to the vTDS
 architecture and concepts can be found in the [vTDS Core Project
