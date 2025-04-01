@@ -534,6 +534,9 @@ class Cluster(ClusterAPI):
         for _, network in networks.items():
             self.__set_connected_blade_macs(network, prefix)
 
+    def consolidate(self):
+        return
+
     def prepare(self):
         self.provider_api = self.stack.get_provider_api()
         self.platform_api = self.stack.get_platform_api()
