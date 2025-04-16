@@ -224,6 +224,18 @@ cluster:
       # The 'node_count' field indicates how many nodes of this type
       # to instantiate on the cluster.
       node_count: 0
+      # The 'distro' section contains settings that are specific to the
+      # Linux distribution running on the nodes of this class.
+      distro:
+        # The pkg_mgmt setting speficies the package manager the Linux
+        # distro uses. Supported values are: 'debian' for debian style
+        # package management (apt and dpkg and such) and 'redhat' for
+        # redhat style package management (RPMs and so forth).
+        pkg_mgmt: debian
+        # The net_mgmt setting specifies what style of network manager
+        # the Linux distro uses. Supported values are 'netplan' or
+        # 'network_manager'
+        net_mgmt: netplan
       # The 'host_blade' settings determine what class of Virtual
       # Blade hosts Virtual Nodes of this class and maximum number of Virtual
       # Nodes of this class that may be hosted per Virtual Blade.
@@ -261,7 +273,7 @@ cluster:
           # The 'disk_size_mb' field specifies the size in megabytes
           # (MB -- multiples of 1,000,000 bytes) of the disk and file
           # system to be created from the source image.
-          disk_size_mb: 10000 # 10GB
+          disk_size_mb: 100000 # 100GB gives us some room to work with
           # The target device tells libvirt what disk device to attach
           # this disk to when creating the Virtual Node. This needs to
           # be unique among additional disks and the boot disk
@@ -413,3 +425,15 @@ cluster:
       # caution because it has the power to entangle a given vTDS stack
       # and make it non-portable.
       application_metadata: {}
+    rocky_linux_node:
+      pure_base_class: true
+      # Use the ubuntu_24_04_node class as a base class and tweak it for
+      # Rocky Linux (which is RedHat based)
+      parent_class: ubuntu_24_04_node
+      distro:
+        pkg_mgmt: redhat
+        net_mgmt: network_manager
+      virtual_machine:
+        boot_disk:
+          # The distro is Rocky, so use that instead of Ubuntu.
+          source_image: https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2

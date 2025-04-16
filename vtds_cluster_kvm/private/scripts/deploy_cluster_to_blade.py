@@ -1006,6 +1006,7 @@ class NetworkInstaller:
         self.add_virtual_network(network_name, bridge_name)
 
 
+# pylint: disable=too-many-instance-attributes
 class VirtualNode:
     """A class for composing, creating and managing Virtual Nodes.
 
@@ -1039,6 +1040,8 @@ class VirtualNode:
                     self.class_name, str(self.node_class)
                 )
             ) from err
+        self.pkg_mgmt = node_class.get('pkg_mgmt', 'debian')
+        self.net_mgmt = node_class.get('net_mgmt', 'netplan')
         self.context = self.__compose()
 
     def __compute_node_name(self):
@@ -1272,6 +1275,8 @@ class VirtualNode:
         configured.
 
         """
+        if self.net_mgmt != 'netplan':
+            return
         if not self.boot_disk_name or not exists(self.boot_disk_name):
             raise ContextualError(
                 "internal error: __configure_netplan run before the "
@@ -1324,13 +1329,19 @@ class VirtualNode:
         SSH keys and authorizations.
 
         """
+        pkg_actions = [
+            '--run-command', 'dpkg-reconfigure openssh-server',
+        ] if self.pkg_mgmt == "debian" else []
+        actions = [
+            *pkg_actions,
+            '--copy-in', '/root/.ssh:/root',
+            '--hostname', self.hostname,
+        ]
         run_cmd(
             'virt-customize',
             [
                 '-a', self.boot_disk_name,
-                '--run-command', 'dpkg-reconfigure openssh-server',
-                '--copy-in', '/root/.ssh:/root',
-                '--hostname', self.hostname,
+                *actions,
             ]
         )
 
