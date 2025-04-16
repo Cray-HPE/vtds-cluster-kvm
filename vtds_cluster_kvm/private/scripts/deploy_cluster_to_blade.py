@@ -1040,8 +1040,8 @@ class VirtualNode:
                     self.class_name, str(self.node_class)
                 )
             ) from err
-        self.pkg_mgmt = node_class.get('pkg_mgmt', 'debian')
-        self.net_mgmt = node_class.get('net_mgmt', 'netplan')
+        self.pkg_mgmt = node_class.get('distro', {}).get('pkg_mgmt', 'debian')
+        self.net_mgmt = node_class.get('distro', {}).get('net_mgmt', 'netplan')
         self.context = self.__compose()
 
     def __compute_node_name(self):
