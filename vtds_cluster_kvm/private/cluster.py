@@ -244,7 +244,7 @@ class Cluster(ClusterAPI):
         ]
         return sum(counts)
 
-    def __add_host_blade_net(self):
+    def __add_host_blade_net(self, config):
         """Merge the blade host networks into the config making sure
         every Virtual Node instance is connected to a blade host
         network and has a static IP address, and making sure that each
@@ -253,9 +253,9 @@ class Cluster(ClusterAPI):
 
         """
         virtual_blades = self.provider_api.get_virtual_blades()
-        node_classes = self.config.get('node_classes', {})
-        networks = self.config.get('networks', {})
-        host_blade_network = self.config.get('host_blade_network', None)
+        node_classes = config.get('node_classes', {})
+        networks = config.get('networks', {})
+        host_blade_network = config.get('host_blade_network', None)
         netname = self.__net_name(host_blade_network)
         hosts = [
             *IPv4Network(self.__get_ipv4_cidr(host_blade_network)).hosts()
@@ -303,6 +303,11 @@ class Cluster(ClusterAPI):
         # Connect all the Virtual Node classes of all classes to the
         # host_blade_network
         for _, node_class in node_classes.items():
+            if node_class.get('pure_base_class', False):
+                # Skip inheritance and installation for pure base
+                # classes since they have no parents, and they aren't
+                # used for deployment.
+                continue
             host_blade_interface = {
                 'delete': False,
                 'cluster_network': netname,
@@ -321,8 +326,8 @@ class Cluster(ClusterAPI):
                 }
             }
             node_class['network_interfaces'][netname] = host_blade_interface
-        self.config['networks'] = networks
-        self.config['node_classes'] = node_classes
+        config['networks'] = networks
+        config['node_classes'] = node_classes
 
     def __expand_node_classes(self, blade_config):
         """Expand the node class inheritance tree found in the
@@ -535,22 +540,24 @@ class Cluster(ClusterAPI):
             self.__set_connected_blade_macs(network, prefix)
 
     def consolidate(self):
-        return
-
-    def prepare(self):
         self.provider_api = self.stack.get_provider_api()
         self.platform_api = self.stack.get_platform_api()
-        self.__add_host_blade_net()
-        blade_config = self.config
-        self.__expand_node_classes(blade_config)
-        self.__set_node_mac_addresses(blade_config)
-        self.__set_all_connected_blade_macs(blade_config)
+        self.__expand_node_classes(self.config)
+        self.__add_host_blade_net(self.config)
+        self.__set_node_mac_addresses(self.config)
+        self.__set_all_connected_blade_macs(self.config)
         networks = self.config.get('networks', {})
-        blade_config['networks'] = {
+        updated_config = self.config
+        updated_config['networks'] = {
             key: self.__add_endpoint_ips(network)
             for key, network in networks.items()
             if not network.get('delete', False)
         }
+        self.config = updated_config
+        return
+
+    def prepare(self):
+        blade_config = self.config
         for _, node_class in self.__get_node_classes(blade_config).items():
             self.__add_xml_template(node_class)
         with open(self.blade_config_path, 'w', encoding='UTF-8') as conf:
