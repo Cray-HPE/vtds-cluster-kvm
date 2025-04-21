@@ -22,7 +22,7 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 #
 [project]
-name = 'vtds-cluster-kvm'
+name = 'vtds_cluster_kvm'
 authors = [
     { name = 'Eric Lund', email = 'eric.lund@hpe.com' },
 ]
