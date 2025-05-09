@@ -1,7 +1,7 @@
 #
 # MIT License
 #
-# (C) Copyright [2024] Hewlett Packard Enterprise Development LP
+# (C) Copyright 2024-2025 Hewlett Packard Enterprise Development LP
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -30,11 +30,31 @@ from os.path import (
 )
 CONFIG_DIR = path_join(dirname(__file__), 'config')
 DEPLOY_SCRIPT_NAME = 'deploy_cluster_to_blade.py'
-DEPLOY_SCRIPT_PATH = path_join(
-    dirname(__file__),
-    'scripts',
-    DEPLOY_SCRIPT_NAME
-)
+SCRIPTS_DIR = path_join(dirname(__file__), 'scripts')
+
+DEPLOY_SCRIPT_PATH = path_join(SCRIPTS_DIR, DEPLOY_SCRIPT_NAME)
+CLUSTER_SCRIPT_LIBS = [
+    (
+        path_join(SCRIPTS_DIR, "cluster_common.py"),
+        "/root/cluster_common.py",
+        "cluster_common"
+    ),
+    (
+        path_join(SCRIPTS_DIR, "node_builder.py"),
+        "/root/node_builder.py",
+        "node_builder"
+    ),
+    (
+        path_join(SCRIPTS_DIR, "disk_builder.py"),
+        "/root/disk_builder.py",
+        "disk_builder"
+    ),
+    (
+        path_join(SCRIPTS_DIR, "kickstart.py"),
+        "/root/kickstart.py",
+        "kickstart"
+    ),
+]
 VM_XML_PATH = path_join(
     CONFIG_DIR,
     'virtual_node_template.xml'

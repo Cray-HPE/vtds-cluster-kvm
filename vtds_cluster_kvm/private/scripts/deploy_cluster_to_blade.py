@@ -2,7 +2,7 @@
 #
 # MIT License
 #
-# (C) Copyright [2024] Hewlett Packard Enterprise Development LP
+# (C) Copyright 2024-2025 Hewlett Packard Enterprise Development LP
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -32,15 +32,6 @@ running on.
 
 """
 import sys
-import os
-from os import (
-    remove as remove_file,
-    makedirs
-)
-from os.path import (
-    exists,
-    join as path_join
-)
 from socket import (
     socket,
     SOCK_STREAM,
@@ -48,7 +39,6 @@ from socket import (
 )
 from subprocess import (
     Popen,
-    TimeoutExpired,
     PIPE
 )
 from tempfile import (
@@ -57,642 +47,40 @@ from tempfile import (
 from uuid import uuid4
 from time import sleep
 import json
-from jinja2 import (
-    Template,
-    TemplateError
+
+from node_builder import pick_node_builder
+
+from cluster_common import (
+    ContextualError,
+    UsageError,
+    usage,
+    error_msg,
+    info_msg,
+    run_cmd,
+    read_config,
+    if_network,
+    net_name,
+    blade_ipv4_ifname,
+    network_blade_connected,
+    is_nat_router,
+    is_dhcp_server,
+    network_connected,
+    node_ipv4_addrs,
+    node_mac_addrs,
+    find_address_family,
+    find_blade_cidr,
+    network_layer_2_name,
+    network_bridge_name,
+    node_connected_networks,
+    instance_range,
+    install_blade_ssh_keys,
+    get_blade_interface_data,
+    prepare_nat,
+    install_nat_rule,
+    compute_hostname,
+    compute_node_name,
+    node_ipv4
 )
-import yaml
-
-
-class ContextualError(Exception):
-    """Exception to report failures seen and contextualized within the
-    application.
-
-    """
-
-
-class UsageError(Exception):  # pylint: disable=too-few-public-methods
-    """Exception to report usage errors
-
-    """
-
-
-def write_out(string):
-    """Write an arbitrary string on stdout and make sure it is
-    flushed.
-
-    """
-    sys.stdout.write(string)
-    sys.stdout.flush()
-
-
-def write_err(string):
-    """Write an arbitrary string on stderr and make sure it is
-    flushed.
-
-    """
-    sys.stderr.write(string)
-    sys.stderr.flush()
-
-
-def usage(usage_msg, err=None):
-    """Print a usage message and exit with an error status.
-
-    """
-    if err:
-        write_err("ERROR: %s\n" % err)
-    write_err("%s\n" % usage_msg)
-    sys.exit(1)
-
-
-def error_msg(msg):
-    """Format an error message and print it to stderr.
-
-    """
-    write_err("ERROR: %s\n" % msg)
-
-
-def warning_msg(msg):
-    """Format a warning and print it to stderr.
-
-    """
-    write_err("WARNING: %s\n" % msg)
-
-
-def info_msg(msg):
-    """Format an informational message and print it to stderr.
-
-    """
-    write_err("INFO: %s\n" % msg)
-
-
-def run_cmd(cmd, args, stdin=sys.stdin, check=True, timeout=None):
-    """Run a command with output on stdout and errors on stderr
-
-    """
-    exitval = 0
-    try:
-        with Popen(
-                [cmd, *args],
-                stdin=stdin, stdout=sys.stdout, stderr=sys.stderr
-        ) as command:
-            time = 0
-            signaled = False
-            while True:
-                try:
-                    exitval = command.wait(timeout=5)
-                except TimeoutExpired:
-                    time += 5
-                    if timeout and time > timeout:
-                        if not signaled:
-                            # First try to terminate the process
-                            command.terminate()
-                            continue
-                        command.kill()
-                        print()
-                        # pylint: disable=raise-missing-from
-                        raise ContextualError(
-                            "'%s' timed out and did not terminate "
-                            "as expected after %d seconds" % (
-                                " ".join([cmd, *args]),
-                                time
-                            )
-                        )
-                    continue
-                # Didn't time out, so the wait is done.
-                break
-            print()
-    except OSError as err:
-        raise ContextualError(
-            "executing '%s' failed - %s" % (
-                " ".join([cmd, *args]),
-                str(err)
-            )
-        ) from err
-    if exitval != 0 and check:
-        fmt = (
-            "command '%s' failed"
-            if not signaled
-            else "command '%s' timed out and was killed"
-        )
-        raise ContextualError(fmt % " ".join([cmd, *args]))
-    return exitval
-
-
-def read_config(config_file):
-    """Read in the specified YAML configuration file for this blade
-    and return the parsed data.
-
-    """
-    try:
-        with open(config_file, 'r', encoding='UTF-8') as config:
-            return yaml.safe_load(config)
-    except OSError as err:
-        raise ContextualError(
-            "failed to load blade configuration file '%s' - %s" % (
-                config_file,
-                str(err)
-            )
-        ) from err
-
-
-def if_network(interface):
-    """Retrieve the network name attached to an interface, raise an
-    exception if there is none.
-
-    """
-    try:
-        return interface['cluster_network']
-    except KeyError as err:
-        raise ContextualError(
-            "configuration error: interface '%s' doesn't "
-            "identify its connected Virtual Network" % str(interface)
-        ) from err
-
-
-def net_name(network):
-    """Retrieve the network name of a network, raise an exception if
-    there is none.
-
-    """
-    try:
-        return network['network_name']
-    except KeyError as err:
-        raise ContextualError(
-            "configuration error: network %s has no "
-            "network name" % str(network)
-        ) from err
-
-
-def blade_ipv4_ifname(network):
-    """Get the name of the interface on the blade where DHCP is
-    served for this interface (if any) and return it. Return None
-    if there is nothing configured for that.
-
-    """
-    return network.get('devices', {}).get('local', {}).get('interface', None)
-
-
-def blade_ipv4_cidr(network):
-    """Get the name of the interface on the blade where DHCP is
-    served for this interface (if any) and return it. Return None
-    if there is nothing configured for that.
-
-    """
-    return network.get('devices', {}).get('local', {}).get('interface', None)
-
-
-def connected_blade_instances(network, blade_class):
-    """Get the list of conencted blade instance numbers for a given
-    network and blade class.
-
-    """
-    return [
-        int(blade_instance)
-        for blade in network.get('connected_blades', [])
-        if blade.get('blade_class', None) == blade_class
-        for blade_instance in blade.get('blade_instances', [])
-    ]
-
-
-def connected_blade_ipv4s(network, blade_class):
-    """Get the list of conencted blade IP addresses for a given
-    network and blade class.
-
-    """
-    address_family = find_address_family(network, 'AF_INET')
-    return [
-        ipv4_addr
-        for blade in address_family.get('connected_blades', [])
-        if blade.get('blade_class', None) == blade_class
-        for ipv4_addr in blade.get('addresses', [])
-    ]
-
-
-def connected_blade_macs(network, blade_class):
-    """Get the list of conencted blade IP addresses for a given
-    network and blade class.
-
-    """
-    address_family = find_address_family(network, 'AF_LINK')
-    return [
-        mac
-        for blade in address_family.get('connected_blades', [])
-        if blade.get('blade_class', None) == blade_class
-        for mac in blade.get('blade_macs', [])
-    ]
-
-
-def network_blade_connected(network, blade_class, blade_instance):
-    """Determine whether the specified network is connected to the
-    specified instance of the specified blade class. If it is, return
-    True otherwise False.
-
-    """
-    return blade_instance in connected_blade_instances(network, blade_class)
-
-
-def network_blade_ipv4(network, blade_class, blade_instance):
-    """Return the IPv4 address (if any) of the given instance of the
-    given blade class on the given network. If no such address is
-    found, return None.
-
-    """
-    instances = connected_blade_instances(network, blade_class)
-    ipv4s = connected_blade_ipv4s(network, blade_class)
-    count = len(instances) if len(instances) <= len(ipv4s) else len(ipv4s)
-    candidates = [
-        ipv4s[i] for i in range(0, count)
-        if blade_instance == instances[i]
-    ]
-    return candidates[0] if candidates else None
-
-
-def network_ipv4_gateway(network):
-    """Return the network IPv4 gateway address if there is one for the
-    specified network. If no gateway is configured, return None.
-
-    """
-    return find_address_family(network, 'AF_INET').get('gateway', None)
-
-
-def is_nat_router(network, blade_class, blade_instance):
-    """Determine whether the specified instance of the specified
-    virtual blade class is the NAT router for the specified virtual
-    network (the NAT router for a virtual network is whatever blade
-    hosts the gateway for that network).
-
-    """
-    blade_ipv4 = network_blade_ipv4(network, blade_class, blade_instance)
-    gateway = network_ipv4_gateway(network)
-    return blade_ipv4 and gateway and blade_ipv4 == gateway
-
-
-def is_dhcp_server(network, blade_class, blade_instance):
-    """Determine whether the specified instance of the specified
-    virtual blade class is the NAT router for the specified virtual
-    network (the NAT router for a virtual network is whatever blade
-    hosts the gateway for that network).
-
-    """
-    address_family = find_address_family(network, 'AF_INET')
-    candidates = [
-        blade
-        for blade in address_family.get('connected_blades', [])
-        if blade.get('blade_class', None) == blade_class and
-        blade.get('dhcp_server_instance', None) == blade_instance
-    ]
-    return len(candidates) > 0
-
-
-def network_connected(network, node_classes):
-    """Determine whether the specified network is connected to an
-    interface in any of the specified node classes. If it is return
-    True otherwise False.
-
-    """
-    interface_connections = [
-        interface['cluster_network']
-        for node_class in node_classes
-        if 'network_interfaces' in node_class
-        for _, interface in node_class['network_interfaces'].items()
-        if 'cluster_network' in interface
-    ]
-    return net_name(network) in interface_connections
-
-
-def node_addrs(network_interface, address_family):
-    """Get the list of addresses configured for the named address
-    family in the supplied netowrk interface taken from a node class
-
-    """
-    try:
-        addr_info = network_interface['addr_info']
-    except KeyError as err:
-        raise ContextualError(
-            "cofiguration error: network interface %s has no 'addr_info' "
-            "section" % str(network_interface)
-        ) from err
-    addrs = []
-    for _, info in addr_info.items():
-        if info.get('family', None) == address_family:
-            if addrs:
-                raise ContextualError(
-                    "configuration error: more than one '%s' addr_info "
-                    "block found in "
-                    "network interface %s" % (
-                        address_family, str(network_interface)
-                    )
-                )
-            addrs += info.get('addresses', [])
-    return addrs
-
-
-def node_mac_addrs(network_interface):
-    """Get the list of node MAC addresses from the provided network
-    interface information taken from a node class.
-
-    """
-    return node_addrs(network_interface, 'AF_PACKET')
-
-
-def node_ipv4_addrs(network_interface):
-    """Get the list of node IPv4 addresses from the provided network
-    interface information taken from a node class.
-
-    """
-    return node_addrs(network_interface, 'AF_INET')
-
-
-def find_addr_info(interface, family):
-    """Find the address information for the specified address family
-    ('family') in the provided node class interface configuration
-    ('interface').
-
-    """
-    addr_infos = [
-        addr_info
-        for _, addr_info in interface.get('addr_info', {}).items()
-        if addr_info.get('family', None) == family
-    ]
-    if len(addr_infos) > 1:
-        netname = interface['cluster_network']
-        raise ContextualError(
-            "configuration error: the interface for network '%s' in a "
-            "node class has more than one '%s' 'addr_info' block: %s" % (
-                netname,
-                family,
-                str(interface)
-            )
-        )
-    if not addr_infos:
-        raise ContextualError(
-            "configuration error: the interface for network '%s' in the "
-            "node class has no '%s' 'addr_info' block: %s" % (
-                netname,
-                family,
-                str(interface)
-            )
-        )
-    return addr_infos[0]
-
-
-def find_address_family(network, family):
-    """Find the L3 configuration for the specified address family
-    ('family') in the provided network configuration ('network').
-
-    """
-    netname = net_name(network)
-    # There should be exactly one 'address_family' block in the network
-    # with the specified family.
-    address_families = [
-        address_family
-        for _, address_family in network.get('address_families', {}).items()
-        if address_family.get('family', None) == family
-    ]
-    if len(address_families) > 1:
-        raise ContextualError(
-            "configuration error: the Virtual Network named '%s' has more "
-            "than one %s 'address_family' block." % (netname, family)
-        )
-    if not address_families:
-        raise ContextualError(
-            "configuration error: the Virtual Network named '%s' has "
-            "no %s 'address_family' block." % (netname, family)
-        )
-    return address_families[0]
-
-
-def network_length(address_family, netname):
-    """Given an address_family ('address_family') from a network named
-    'netname' return the network length from its 'cidr' element.
-
-    """
-    if 'cidr' not in address_family:
-        raise ContextualError(
-            "configuration error: the AF_INET 'address_family' block for the "
-            "network named '%s' has no 'cidr' configured" % netname
-        )
-    if '/' not in address_family['cidr']:
-        raise ContextualError(
-            "configuration error: the AF_INET 'cidr' value '%s' for the "
-            "network named '%s' is malformed" % (
-                address_family['cidr'], netname
-            )
-        )
-    return address_family['cidr'].split('/')[1]
-
-
-def find_blade_cidr(network, blade_class, blade_instance):
-    """Find the IPv4 address/CIDR to use on the network interface for
-    a specified network. The 'network' argument describes the network
-    of interest, 'blade_class' and 'blade_instance' identify the blade
-    we are running on. If there is no IPv4 address for this blade,
-    then return None.
-
-    """
-    address_family = find_address_family(network, "AF_INET")
-    blade_ip = network_blade_ipv4(network, blade_class, blade_instance)
-    return (
-        '/'.join((blade_ip, network_length(address_family, net_name(network))))
-        if blade_ip is not None else None
-    )
-
-
-def network_layer_2_name(network):
-    """Get or construct the layer 2 interface name for the network
-    configuration found in 'network'.
-
-    """
-    network_name = net_name(network)
-    return network.get('devices', {}).get('layer_2', network_name)
-
-
-def network_bridge_name(network):
-    """Get or construct the bridge name for the network configuration
-    found in 'network'.
-
-    """
-    layer_2_name = network_layer_2_name(network)
-    return network.get('devices', {}).get(
-        'bridge_name', "br-%s" % layer_2_name
-    )
-
-
-def node_connected_networks(node_class, networks):
-    """Given a node class and a list of networks return a dictionary
-    of networks that are connected to that node class indexed by
-    network name.
-
-    """
-    if_nets = [
-        interface.get('cluster_network', "")
-        for _, interface in node_class.get('network_interfaces', {}).items()
-    ]
-    return {
-        net_name(network): network
-        for network in networks
-        if net_name(network) in if_nets
-    }
-
-
-def instance_range(node_class, blade_instance):
-    """Compute a range of Virtual Nodes of a given node class
-    ('node_class') that belong on a given Virtual Blade instance
-    ('blade_instance') based on the number of Virtual Nodes of that
-    class to be deployed and the number of Virtual Nodes of that class
-    that fit on each blade. Return the range as a tuple.
-
-    """
-    blade_instance = int(blade_instance)  # coerce to int for local use
-    node_count = int(node_class.get('node_count'))
-    capacity = int(
-        node_class
-        .get('host_blade', {})
-        .get('instance_capacity', 1)
-    )
-    start = blade_instance * capacity
-    start = start if start < node_count else node_count
-    end = (blade_instance * capacity) + capacity
-    end = end if end < node_count else node_count
-    return (start, end)
-
-
-def open_safe(path, flags):
-    """Safely open a file with a mode that only permits reads and
-    writes by owner. This is used as an 'opener' in cases where the
-    file needs protecting.
-
-    """
-    return os.open(path, flags, 0o600)
-
-
-def install_blade_ssh_keys(key_dir):
-    """Copy the blade SSH keys into place from the uploaded key
-    directory. The public key is already authorized, so no need to do
-    anything to authorized keys.
-
-    """
-    priv = 'id_rsa'
-    pub = 'id_rsa.pub'
-    with open(path_join(key_dir, priv), 'r', encoding='UTF-8') as key_in, \
-         open(path_join(os.sep, 'root', '.ssh', priv), 'w',
-              encoding='UTF-8', opener=open_safe) as key_out:
-        key_out.write(key_in.read())
-    with open(path_join(key_dir, pub), 'r', encoding='UTF-8') as key_in, \
-         open(path_join(os.sep, 'root', '.ssh', pub), 'w',
-              encoding='UTF-8') as key_out:
-        key_out.write(key_in.read())
-
-
-def get_blade_interface_data():
-    """Collect the interface data from the blade as a data structure.
-
-    """
-    with Popen(
-        ['ip', '-d', '--json', 'addr'],
-        stdout=PIPE,
-        stderr=PIPE
-    ) as cmd:
-        return json.loads(cmd.stdout.read())
-
-
-def find_interconnect_interface():
-    """Find the interface that connects to the blade interconnect on
-    this blade (i.e. not a tunnel, not a bridge, not a peer, but a
-    straight up interface and return its name).
-
-    """
-    if_data = get_blade_interface_data()
-    # Look for interfaces that are 'ether' and not qualified by any other
-    # stuff like bridging or tunelling or whatever.
-    candidates = [
-        interface['ifname']
-        for interface in if_data
-        if interface.get('link_type', '') == 'ether' and
-        interface.get('linkinfo', None) is None
-    ]
-    if len(candidates) > 1:
-        # We should only have one candidate, catch the case where there
-        # are more and error out on them. If this is not a valid assumption
-        # we may, some day, need to go further with this, but for now it
-        # should suffice.
-        raise ContextualError(
-            "internal error: there appears to be more than one pure ethernet "
-            "interface on this Virtual Blade: %s" % str(candidates)
-        )
-    if not candidates:
-        # We should have a candidate. If not there is a problem.
-        raise ContextualError(
-            "internal error: there does not appear to be any pure ethernet "
-            "interface on this Virtual Blade: %s" % str(if_data)
-        )
-    return candidates[0]
-
-
-def find_mtu(link_name):
-    """Given the name of a network link (interface) return the MTU of
-    that link.
-
-    """
-    if_data = get_blade_interface_data()
-    candidates = [
-        link
-        for link in if_data
-        if link.get('ifname', "") == link_name
-    ]
-    if not candidates:
-        raise ContextualError(
-            "internal error: no link named '%s' found in blade interfaces "
-            "cannot retrieve the MTU - %s" % (link_name, if_data)
-        )
-    if len(candidates) > 1:
-        raise ContextualError(
-            "internal error: more than one link named '%s' found in blade "
-            "interfaces cannot discern the MTU - %s" % (
-                link_name, str(if_data)
-            )
-        )
-    mtu = candidates[0].get('mtu', None)
-    if mtu is None:
-        raise ContextualError(
-            "internal error: link '%s' has no MTU "
-            "specified - %s" % str(candidates[0])
-        )
-    return mtu
-
-
-def prepare_nat():
-    """Prepare the blade for installation of NAT rules (load kernel
-    modules and clear out any stale NAT rules).
-
-    """
-    # We are going to add NAT, so Load the canonically necessary
-    # kernel modules...
-    run_cmd('modprobe', ['ip_tables'])
-    run_cmd('modprobe', ['ip_conntrack'])
-    run_cmd('modprobe', ['ip_conntrack_irc'])
-    run_cmd('modprobe', ['ip_conntrack_ftp'])
-    # Clear out any old NAT rules...
-    run_cmd('iptables', ['-t', 'nat', '-F'])
-
-
-def install_nat_rule(network):
-    """Run through the networks for which this blade is a DHCP server
-    and, if this blade is also the configured gateway for the network,
-    add a NAT rule for this network on the blade to masquerade traffic
-    from that network to external IPs.
-
-    """
-    dest_if = find_interconnect_interface()
-    cidr = find_address_family(network, 'AF_INET')['cidr']
-    run_cmd(
-        'iptables',
-        [
-            '-t', 'nat', '-A', 'POSTROUTING', '-s', cidr,
-            '-o', dest_if, '-j', 'MASQUERADE'
-        ]
-    )
 
 
 class NetworkInstaller:
@@ -1006,12 +394,11 @@ class NetworkInstaller:
         self.add_virtual_network(network_name, bridge_name)
 
 
-# pylint: disable=too-many-instance-attributes
 class VirtualNode:
     """A class for composing, creating and managing Virtual Nodes.
 
     """
-    def __init__(self, node_class, networks, node_instance):
+    def __init__(self, config, node_class, node_instance):
         """Constructor: 'node_class' is the node class configuration
         for the Virtual node, 'networks' is a filtered dictionary
         indexed by network name of the networks that are connected to
@@ -1019,87 +406,22 @@ class VirtualNode:
         within its node class of the Virtual Node.
 
         """
-        self.class_name = node_class['class_name']
         self.node_class = node_class
-        self.networks = networks
         self.node_instance = node_instance
-        self.hostname = self.__compute_hostname()
-        self.node_name = self.__compute_node_name()
-        self.nodeclass_dir = path_join(
-            os.sep, 'var', 'local', 'vtds', self.class_name
-        )
-        self.host_dir = path_join(self.nodeclass_dir, self.node_name)
-        makedirs(self.host_dir, mode=0o755, exist_ok=True)
-        self.boot_disk_name = None
-        try:
-            self.virtual_machine = self.node_class['virtual_machine']
-        except KeyError as err:
+        self.networks = node_connected_networks(node_class, config['networks'])
+        class_name = node_class['class_name']
+        if self.node_class.get('virtual_machine', None) is None:
             raise ContextualError(
                 "configuration error: node class '%s' does not define "
                 "a 'virtual_machine' section: %s" % (
-                    self.class_name, str(self.node_class)
-                )
-            ) from err
-        self.pkg_mgmt = node_class.get('distro', {}).get('pkg_mgmt', 'debian')
-        self.net_mgmt = node_class.get('distro', {}).get('net_mgmt', 'netplan')
-        self.context = self.__compose()
-
-    def __compute_node_name(self):
-        """Based on the naming information in the node_class compose a
-        node name for this instance of the node_class and return it as
-        a string.
-
-        Since all of the magic to make sure node names are set up has
-        already been done by the preparation of the config, just use
-        the hostnames that are there. No need to be fancy about it.
-
-        """
-        return self.node_class['node_naming']['node_names'][self.node_instance]
-
-    def __compute_hostname(self):
-        """Based on the naming information in the node_class compose a
-        host name for this instance of the node_class and return it as
-        a string.
-
-        Since all of the magic to make sure hostnames are set up has
-        already been done by the preparation of the config, just use
-        the hostnames that are there. No need to be fancy about it.
-
-        """
-        return self.node_class['host_naming']['hostnames'][self.node_instance]
-
-    def __node_ipv4(self, network):
-        """Get the IPv4 address of this node on the named network if
-        this node's instance of its node class has a static or
-        reserved address on that network. Otherwise return None.
-
-        """
-        interface_candidates = [
-            interface
-            for _, interface in self.node_class
-            .get('network_interfaces', {}).items()
-            if interface.get('cluster_network', None) == network
-        ]
-        if not interface_candidates:
-            raise ContextualError(
-                "there is no network interface for network '%s' in %s" % (
-                    network, self.node_name
+                    class_name, str(self.node_class)
                 )
             )
-        if len(interface_candidates) > 1:
-            raise ContextualError(
-                "there is more than one network interface for "
-                "network '%s' in %s" % (
-                    network, self.node_name
-                )
-            )
-        interface = interface_candidates[0]
-        addr_info = find_addr_info(interface, 'AF_INET')
-        addresses = addr_info.get('addresses', [])
-        return (
-            addresses[self.node_instance]
-            if len(addresses) > self.node_instance
-            else None
+        self.hostname = compute_hostname(node_class, node_instance)
+        self.node_name = compute_node_name(node_class, node_instance)
+        root_passwd = str(uuid4())
+        self.node_builder = pick_node_builder(
+            config, node_class, node_instance, root_passwd
         )
 
     def __host_blade_ipv4(self):
@@ -1112,414 +434,11 @@ class VirtualNode:
         # something else entirely, but it is the best I have right now
         # without knowing the whole config, so it will have to do.
         candidates = [
-            self.__node_ipv4(network)
+            node_ipv4(self.node_class, self.node_instance, network)
             for network, network_settings in self.networks.items()
             if network_settings.get('non_cluster', False)
         ]
         return candidates[0] if candidates else None
-
-    @staticmethod
-    def __retrieve_image(url, dest):
-        """Retrieve a disk image from a URL ('url') and write it the
-        file named in 'dest'.
-
-        """
-        # Using curl here instead of writing a requests library
-        # operation because it is simpler and just about as fast and
-        # the error handling is covered. If the destination file
-        # already exists, simply return. If retrieval fails, remove
-        # any partial destination file that might have been created.
-        if not exists(dest):
-            try:
-                run_cmd('curl', ['-o', dest, '-s', url])
-            except Exception as err:
-                if exists(dest):
-                    remove_file(dest)
-                raise err
-
-    @staticmethod
-    # Take this out when we start using partitions
-    #
-    # pylint: disable=unused-argument
-    def __make_disk_image(name, size, source_image_name, partitions):
-        """Build a disk image in a file named 'name'. If 'size' is not
-        None make sure the resulting disk image is 'size' bytes
-        long. If 'source_image_name' is not None, use the source image
-        in the named file. If 'partitions' is specified, partition the
-        disk accordingly.
-
-        """
-        run_cmd(
-            'rm',
-            ['-f', name]
-        )
-        # pylint: disable=fixme
-        # TODO implement partitioning
-        source_options = (
-            ['-b', source_image_name, '-F', 'qcow2']
-            if source_image_name
-            else []
-        )
-        size_args = ['%sM' % size] if size else []
-        run_cmd(
-            'qemu-img',
-            ['create', *source_options, '-f', 'qcow2', name, *size_args]
-        )
-        run_cmd(
-            'chown',
-            ['libvirt-qemu:kvm', name]
-        )
-
-    def __make_disk(self, name, disk_config, source_image_name=None):
-        """Given an the filename ('name') to store the boot disk file,
-        the size in megabytes ('size' -- multiples of 1,000,000) and
-        the image URL ('image_url') or a set of partition descriptions
-        ('partitions'), construct a disk for use with the Virtual Node
-        and return its description.
-
-        """
-        image_url = disk_config.get('source_image', None)
-        partitions = disk_config.get('partitions', {})
-        size = disk_config.get('disk_size_mb', None)
-        target_dev = disk_config.get('target_device', None)
-        if not target_dev:
-            raise ContextualError(
-                "configuration error: disk '%s' has no target device "
-                "configured: %s" % (name, str(disk_config))
-            )
-        if partitions and image_url:
-            raise ContextualError(
-                "configuration error: Virtual Node class '%s' "
-                "disk configuration "
-                "declares both a non-empty 'source_image' "
-                "URL ('%s') and a non-empty partition list, "
-                "must choose one or the other: %s" % (
-                    self.class_name,
-                    image_url,
-                    str(disk_config)
-                )
-            )
-        if not image_url and not partitions and not size:
-            raise ContextualError(
-                "configuration error: Virtual Node class '%s' disk "
-                "configuration must declare at "
-                "at least one of 'disk_size_mb', 'source_image' "
-                "or 'partitions': %s" % (
-                    self.class_name,
-                    str(disk_config)
-                )
-            )
-        if image_url and not source_image_name:
-            raise ContextualError(
-                "internal error: no source image name supplied when making "
-                "a disk with a  source image URL"
-            )
-        if image_url:
-            self.__retrieve_image(image_url, source_image_name)
-        self.__make_disk_image(name, size, source_image_name, partitions)
-        return {
-            'file_name': name,
-            'target_device': target_dev,
-        }
-
-    def __make_boot_disk(self):
-        """Create a boot disk image for this Virtual Node using the
-        information from the Node Class and return the template
-        description of the disk.
-
-        """
-        try:
-            disk_config = self.virtual_machine['boot_disk']
-        except KeyError as err:
-            raise ContextualError(
-                "configuration error: Virtual Node class '%s' "
-                "'virtual_machine' section "
-                "does not contain a 'boot_disk' "
-                "section: %s" % (
-                    self.class_name,
-                    str(self.node_class)
-                )
-            ) from err
-        self.boot_disk_name = path_join(self.host_dir, "boot_disk.img")
-        source_image_name = path_join(
-            self.nodeclass_dir, 'boot-img-source.qcow'
-        )
-        return self.__make_disk(
-            self.boot_disk_name, disk_config, source_image_name
-        )
-
-    def __make_extra_disks(self):
-        """Create all of the extra disk images for this Virtual Node
-        using the information in from the Node Class and return the
-        template description of the list of disks.
-
-        """
-        extra_disks = self.virtual_machine.get('additional_disks', {})
-        return [
-            self.__make_disk(
-                path_join(self.host_dir, "%s.img" % disk_name),
-                extra_disk,
-                (
-                    path_join(self.nodeclass_dir, "%s.qcow" % disk_name)
-                    if extra_disk.get('source_image', None) else
-                    None
-                )
-            )
-            for disk_name, extra_disk in extra_disks.items()
-        ]
-
-    def __configure_netplan(self, context):
-        """Given the network interfaces portion of a VM template
-        context ('context') configure the netplan on this instance's
-        boot disk image to bring up all of the network interfaces as
-        configured.
-
-        """
-        if self.net_mgmt != 'netplan':
-            return
-        if not self.boot_disk_name or not exists(self.boot_disk_name):
-            raise ContextualError(
-                "internal error: __configure_netplan run before the "
-                "boot disk image was created"
-            )
-        netplan = {
-            'network': {
-                'version': "2",
-                'renderer': 'networkd',
-                'ethernets': {
-                    interface['ifname']: {
-                        'addresses': (
-                            [
-                                '/'.join(
-                                    [
-                                        interface['ipv4_addr'],
-                                        interface['ipv4_netlength']
-                                    ]
-                                )
-                            ]
-                            if interface['ipv4_addr'] is not None
-                            else []
-                        ),
-                        'dhcp6': False,
-                        'dhcp4': interface['dhcp4'],
-                        'mtu': interface['mtu'],
-                        'match': {
-                            'macaddress': interface['mac_addr']
-                        }
-                    }
-                    for interface in context
-                }
-            }
-        }
-        with NamedTemporaryFile(mode='w', encoding='UTF-8') as tmpfile:
-            yaml.safe_dump(netplan, tmpfile)
-            tmpfile.flush()
-            run_cmd(
-                'virt-customize',
-                [
-                    '-a', self.boot_disk_name,
-                    '--upload',
-                    "%s:/etc/netplan/10-vtds-ethernets.yaml" % tmpfile.name
-                ]
-            )
-
-    def __reconfigure_ssh(self):
-        """Run 'dpkg-recofigure openssh-server' on the root disk so
-        that the SSH servers will have host keys. Also, install root
-        SSH keys and authorizations.
-
-        """
-        pkg_actions = [
-            '--run-command', 'dpkg-reconfigure openssh-server',
-        ] if self.pkg_mgmt == "debian" else []
-        actions = [
-            *pkg_actions,
-            '--copy-in', '/root/.ssh:/root',
-            '--hostname', self.hostname,
-        ]
-        run_cmd(
-            'virt-customize',
-            [
-                '-a', self.boot_disk_name,
-                *actions,
-            ]
-        )
-
-    def __make_network_interface(self, interface, network):
-        """Given an interface configuration ('interface') taken from a
-        node class and the matching network configuration ('network')
-        taken from self.networks, return a context for rendering XML
-        and for composing a netplan configuration for a single
-        interface in this Virtual Node.
-
-        """
-        node_instance = int(self.node_instance)
-        netname = interface['cluster_network']
-        bridge_name = network_bridge_name(network)
-        mtu = find_mtu(bridge_name)
-        ipv4_info = find_addr_info(interface, "AF_INET")
-        mac_addrs = node_mac_addrs(interface)
-        addresses = ipv4_info.get('addresses', [])
-        address_family = find_address_family(network, "AF_INET")
-        net_length = network_length(address_family, netname)
-        try:
-            mode = ipv4_info['mode']
-        except KeyError as err:
-            raise ContextualError(
-                "configuration error: AF_INET addr_info in interface "
-                "for network '%s' in node class has no 'mode' value: %s" % (
-                    netname, str(self.node_class)
-                )
-            ) from err
-        dhcp4 = (
-            mode in ['dynamic', 'reserved'] or
-            node_instance >= len(addresses)
-        )
-        ipv4_addr = (
-            addresses[self.node_instance]
-            if node_instance < len(addresses)
-            else None
-        )
-        ipv4_netlen = (
-            net_length
-            if node_instance < len(addresses)
-            else None
-        )
-        return {
-            'ifname': netname,
-            'dhcp4': dhcp4,
-            'ipv4_addr': ipv4_addr,
-            'ipv4_netlength': ipv4_netlen,
-            'name_servers': [
-                "",
-                ...
-            ],
-            'netname': netname,
-            'source_if': bridge_name,
-            'mac_addr': mac_addrs[node_instance],
-            'mtu': mtu,
-        }
-
-    def __make_network_interfaces(self):
-        """Configure the network interfaces on the boot disk image and
-        return the template description of the network interfaces.
-
-        """
-        context = [
-            self.__make_network_interface(
-                interface, self.networks[interface['cluster_network']]
-            )
-            for _, interface in self.node_class.get(
-                'network_interfaces', {}
-            ).items()
-        ]
-        self.__configure_netplan(context)
-        return context
-
-    def __configure_root_passwd(self):
-        """Configure the root password on the boot disk image for the
-        Virtual Node.
-
-        """
-        if not self.boot_disk_name or not exists(self.boot_disk_name):
-            raise ContextualError(
-                "internal error: __configure_root_passwd run before the "
-                "boot disk image was created"
-            )
-        # pylint: disable=fixme
-        #
-        # For now use uuid to generate a root password so that I have
-        # something and I can access the Virtual Nodes.
-        #
-        # TODO: figure out how to do this using a Google Secret so
-        #       the user can configure the root password for nodes,
-        #       node classes or whatever.
-        root_passwd = str(uuid4())
-        run_cmd(
-            'virt-customize',
-            [
-                '-a', self.boot_disk_name,
-                '--root-password', 'password:%s' % root_passwd,
-            ]
-        )
-        # Toss the root password for the node in a root-owned readable
-        # only by owner file so we can use it later.
-        filename = "%s-passwd.txt" % self.hostname
-        with open(
-            filename, mode='w', opener=open_safe, encoding='UTF-8'
-        ) as pw_file:
-            pw_file.write("%s\n" % root_passwd)
-
-    def __compose(self):
-        """Compose the template data that will be used to fill out the
-        XML template that will be used to create the Virtual Node
-        using 'virsh create <filename>'
-
-        """
-        try:
-            memsize = str(int(self.virtual_machine['memory_size_mib']) * 1024)
-        except KeyError as err:
-            raise ContextualError(
-                "configuration error: no 'memory_size_mib' found in "
-                "Virtual Machine configuration for Virtual Node class '%s': "
-                " %s " % (self.class_name, str(self.node_class))
-            ) from err
-        except ValueError as err:
-            raise ContextualError(
-                "configuration error: the value of 'memory_size_mib' ('%s') "
-                "must be an integer value in Virtual Machine configuration "
-                "for Virtual Node class '%s': %s " % (
-                    self.virtual_machine['memory_size_mib'],
-                    self.class_name,
-                    str(self.node_class)
-                )
-            ) from err
-        try:
-            cpus = self.virtual_machine['cpu_count']
-        except KeyError as err:
-            raise ContextualError(
-                "configuration error: no 'cpu_count' found in "
-                "Virtual Machine configuration for Virtual Node "
-                "class '%s': %s " % (self.class_name, str(self.node_class))
-            ) from err
-        return {
-            'hostname': self.node_name,
-            'uuid': str(uuid4()),
-            'memsize_kib': memsize,
-            'cpus': cpus,
-            'boot_disk': self.__make_boot_disk(),
-            'extra_disks': self.__make_extra_disks(),
-            'interfaces': self.__make_network_interfaces(),
-        }
-
-    def create(self):
-        """Compose an XML definition of the Virtual Node and create
-        it on the current blade.
-
-        """
-        self.__reconfigure_ssh()
-        try:
-            vm_template = self.node_class['vm_xml_template']
-        except KeyError as err:
-            raise ContextualError(
-                "internal configuration error: Virtual Node class '%s' does "
-                "not have a VM XML template stored in it. This may be some "
-                "kind of module version mismatch."
-            ) from err
-        self.__configure_root_passwd()
-        template = Template(vm_template)
-        try:
-            vm_xml = template.render(**self.context)
-        except TemplateError as err:
-            raise ContextualError(
-                "internal error: error rendering VM XML file from context and "
-                "XML template - %s" % str(err)
-            ) from err
-        with NamedTemporaryFile(mode='w', encoding='UTF-8') as tmpfile:
-            tmpfile.write(vm_xml)
-            tmpfile.flush()
-            run_cmd('virsh', ['define', tmpfile.name])
-            run_cmd('virsh', ['start', self.node_name])
 
     def wait_for_ssh(self):
         """Wait for the node to be up and listening on the SSH port
@@ -1578,6 +497,12 @@ class VirtualNode:
             "failed to connect to '%s' on port 22 to verify "
             "boot success - %s" % (self.hostname, str(last_err))
         )
+
+    def create(self):
+        """Create the Virtual Node on the host blade
+
+        """
+        self.node_builder.build()
 
     def stop(self):
         """Stop but do not undefine the Virtual Node.
@@ -1879,8 +804,8 @@ def main(argv):
     # the blades).
     nodes = [
         VirtualNode(
+            config,
             node_class,
-            node_connected_networks(node_class, networks),
             instance
         )
         for node_class in node_classes

@@ -1,7 +1,7 @@
 #
 # MIT License
 #
-# (C) Copyright [2024] Hewlett Packard Enterprise Development LP
+# (C) Copyright 2024-2025 Hewlett Packard Enterprise Development LP
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -44,6 +44,7 @@ from vtds_base.layers.cluster import (
 from . import (
     DEPLOY_SCRIPT_PATH,
     DEPLOY_SCRIPT_NAME,
+    CLUSTER_SCRIPT_LIBS,
     VM_XML_PATH
 )
 from .common import Common
@@ -329,6 +330,26 @@ class Cluster(ClusterAPI):
         config['networks'] = networks
         config['node_classes'] = node_classes
 
+    def __cache_connected_blades(self, config):
+        """For each network in the configuration comb through the IPv4
+        address families and find out the list of connected blade types
+        and instances for that network. Add that information at the top
+        level of the network (<network>.connected_blades) to give
+        the deployment script easier access to it.
+
+        """
+        for _, network in config['networks'].items():
+            ipv4 = self.__get_address_family(network, 'AF_INET')
+            network['connected_blades'] = [
+                {
+                    'blade_class': connected_blade['blade_class'],
+                    'blade_instances': list(
+                        range(0, len(connected_blade.get('addresses', [])))
+                    ),
+                }
+                for connected_blade in ipv4.get('connected_blades', [])
+            ]
+
     def __expand_node_classes(self, blade_config):
         """Expand the node class inheritance tree found in the
         provided blade_config data and replace the node classes found
@@ -544,6 +565,7 @@ class Cluster(ClusterAPI):
         self.platform_api = self.stack.get_platform_api()
         self.__expand_node_classes(self.config)
         self.__add_host_blade_net(self.config)
+        self.__cache_connected_blades(self.config)
         self.__set_node_mac_addresses(self.config)
         self.__set_all_connected_blade_macs(self.config)
         networks = self.config.get('networks', {})
@@ -554,7 +576,6 @@ class Cluster(ClusterAPI):
             if not network.get('delete', False)
         }
         self.config = updated_config
-        return
 
     def prepare(self):
         blade_config = self.config
@@ -609,6 +630,10 @@ class Cluster(ClusterAPI):
                     DEPLOY_SCRIPT_PATH, DEPLOY_SCRIPT_NAME
                 )
             )
+            for (source, dest, name) in CLUSTER_SCRIPT_LIBS:
+                connections.copy_to(
+                    source, dest, False, "upload-%s-library-to" % name
+                )
             connections.copy_to(
                 DEPLOY_SCRIPT_PATH, "/root/%s" % DEPLOY_SCRIPT_NAME,
                 False, "upload-cluster-deploy-script-to"

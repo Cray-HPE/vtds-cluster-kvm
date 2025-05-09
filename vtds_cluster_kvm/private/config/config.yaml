@@ -140,19 +140,6 @@ cluster:
       # The name of the Blade Interconnect network underlying this
       # Virtual Network. Set this to null for blade-local networks.
       blade_interconnect: base-interconnect
-      # Connected blades lists the blades that are connected to
-      # the Virtual Network (by default no blade is connected). If
-      # you are going to have a blade provided DHCP server on one
-      # of the blades for this network, that blade (class and
-      # instance) must be a connected blade. For a blade-local
-      # network to exist on a blade, that blade (class and
-      # instance) must be in the set of connected blades.
-      connected_blades:
-        # Connected blades are grouped by blade class and
-        # identified by instance numbers.
-        - blade_class: base-blade
-          blade_instances:
-            - 0
       # Configuration for things that are specific to a given address
       # family being used on the network.
       address_families:
@@ -227,15 +214,12 @@ cluster:
       # The 'distro' section contains settings that are specific to the
       # Linux distribution running on the nodes of this class.
       distro:
-        # The pkg_mgmt setting speficies the package manager the Linux
-        # distro uses. Supported values are: 'debian' for debian style
-        # package management (apt and dpkg and such) and 'redhat' for
-        # redhat style package management (RPMs and so forth).
-        pkg_mgmt: debian
-        # The net_mgmt setting specifies what style of network manager
-        # the Linux distro uses. Supported values are 'netplan' or
-        # 'network_manager'
-        net_mgmt: netplan
+        # The family of a distro indicates its closest affiliation in
+        # the Linux distro space. At the moment, what is supported are
+        # Debian style (ubuntu, for example) and RedHat style (CentOs,
+        # or Rocky for example). This tells the deployment script what
+        # installation mechanism is being used for the Virtual Node
+        family: Debian
       # The 'host_blade' settings determine what class of Virtual
       # Blade hosts Virtual Nodes of this class and maximum number of Virtual
       # Nodes of this class that may be hosted per Virtual Blade.
@@ -266,14 +250,47 @@ cluster:
         # The 'boot_disk' block describes the characteristics of the
         # boot disk, including the OS image it should be created from.
         boot_disk:
-          # The 'source_image' field specifies the URL of the OS QCOW
-          # image from which the boot disk for each Virtual Node of
-          # this class should be built.
-          source_image: "http://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img"
+          # The 'source_image' field specifies the URL of the OS or
+          # installation media image from which the boot disk for each
+          # Virtual Node of this class should be built.
+          source_image: http://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img
+          # The source checksum allows the source to be signed for
+          # security purposes. The elements of this are the URL from
+          # which the checksum information can be downloaded and the
+          # (optional) algorithm used to produce the checksum.
+          source_checksum:
+            # The URL locates the file containing the checksum
+            url: http://cloud-images.ubuntu.com/focal/current/SHA256SUMS
+            # The algorithm field defaults to SHA256 but can be
+            # provided. If the checksum file identifies the actual
+            # algorithm used, that information is used and this setting
+            # is ignored. In cases where the file does not identify the
+            # algorithm, this is used. Supported options are MD5 and
+            # SHA256.
+            algorithm: SHA256
+          # Media type specifies what the medium of the boot disk is at
+          # download and installation time. Supported media types at the
+          # moment are qcow2 and iso. For a qcow2 image, the disk is
+          # presumed to be installable simply by constructing a Virtual
+          # Node disk image using qemu-img and customizing it using
+          # virt-customize. For an iso image, the image needs to be
+          # booted into a VM and then the resulting disk image (now a
+          # qcow2 image) can be customized.
+          #
+          # The image type interacts with distro.style because, while
+          # Ubuntu and other Debian style distros seem to be available
+          # as live qcow2 images, RedHat style seem to be available only
+          # as iso installation images that need to be booted into and
+          # (generally) installed using kickstart. For RedHat images,
+          # then, the customization is done using and no virt-customize
+          # steps are used. For Ubuntu, if the image is an iso image, it
+          # will be booted to get the qcow, then customized using
+          # virt-customize.
+          media_type: qcow2
           # The 'disk_size_mb' field specifies the size in megabytes
           # (MB -- multiples of 1,000,000 bytes) of the disk and file
           # system to be created from the source image.
-          disk_size_mb: 100000 # 100GB gives us some room to work with
+          disk_size_mb: 50000 # 50GB gives us some room to work with
           # The target device tells libvirt what disk device to attach
           # this disk to when creating the Virtual Node. This needs to
           # be unique among additional disks and the boot disk
@@ -285,9 +302,30 @@ cluster:
             # initialized. If this is null or not provided, the disk
             # will be an empty disk.
             source_image: null
+            # The source checksum block can be used to validate a source
+            # image. See the 'boot_disk' source information for more
+            # details.
+            source_checksum: {}
+            # The source checksum allows the source to be signed for
+            # security purposes. None specified here because no image
+            # was specified. If one were specified it would be a URL to
+            # a checksum file generated by the provider of the source
+            # image.
+            source_checksum: null
+            # The source checksum algorithm defaults to SHA256 but can
+            # be specified here. If the checksum file indicates a the
+            # actual algorithm used, that information is used and this
+            # setting is ignored. In cases where the file does not
+            # identify the algorithm, this is used. Supported options
+            # are MD5 and SHA256.
+            source_checksum_algorithm: SHA256
+            # Media type specifies what medium the disk image
+            # is. For non-boot disks, the only medium that is currently
+            # supported is qcow2.
+            media_type: qcow2
             # The 'disk_size_mb' field specifies the size in megabytes
             # (MB -- multiples of 1,000,000 bytes) of the disk.
-            disk_size_mb: 100000 # 100GB
+            disk_size_mb: 50000 # 50GB
             # The target device tells libvirt what disk device to attach
             # this disk to when creating the Virtual Node. This needs to
             # be unique among additional disks and the boot disk
@@ -431,9 +469,20 @@ cluster:
       # Rocky Linux (which is RedHat based)
       parent_class: ubuntu_24_04_node
       distro:
-        pkg_mgmt: redhat
-        net_mgmt: network_manager
+        family: RedHat
       virtual_machine:
         boot_disk:
           # The distro is Rocky, so use that instead of Ubuntu.
-          source_image: https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2
+          source_image: https://dl.rockylinux.org/pub/rocky/9/isos/x86_64/Rocky-9-latest-x86_64-minimal.iso
+          source_checksum:
+            # The URL locates the file containing the checksum
+            url: |
+              https://dl.rockylinux.org/pub/rocky/9/isos/x86_64/Rocky-9-latest-x86_64-minimal.iso.CHECKSUM
+            # The algorithm field defaults to SHA256 but can be
+            # provided. If the checksum file identifies the actual
+            # algorithm used, that information is used and this setting
+            # is ignored. In cases where the file does not identify the
+            # algorithm, this is used. Supported options are MD5 and
+            # SHA256.
+            algorithm: SHA256
+          media_type: iso
