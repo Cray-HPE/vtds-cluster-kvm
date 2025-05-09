@@ -227,15 +227,12 @@ cluster:
       # The 'distro' section contains settings that are specific to the
       # Linux distribution running on the nodes of this class.
       distro:
-        # The pkg_mgmt setting speficies the package manager the Linux
-        # distro uses. Supported values are: 'debian' for debian style
-        # package management (apt and dpkg and such) and 'redhat' for
-        # redhat style package management (RPMs and so forth).
-        pkg_mgmt: debian
-        # The net_mgmt setting specifies what style of network manager
-        # the Linux distro uses. Supported values are 'netplan' or
-        # 'network_manager'
-        net_mgmt: netplan
+        # The family of a distro indicates its closest affiliation in
+        # the Linux distro space. At the moment, what is supported are
+        # Debian style (ubuntu, for example) and RedHat style (CentOs,
+        # or Rocky for example). This tells the deployment script what
+        # installation mechanism is being used for the Virtual Node
+        family: Debian
       # The 'host_blade' settings determine what class of Virtual
       # Blade hosts Virtual Nodes of this class and maximum number of Virtual
       # Nodes of this class that may be hosted per Virtual Blade.
@@ -266,10 +263,29 @@ cluster:
         # The 'boot_disk' block describes the characteristics of the
         # boot disk, including the OS image it should be created from.
         boot_disk:
-          # The 'source_image' field specifies the URL of the OS QCOW
-          # image from which the boot disk for each Virtual Node of
-          # this class should be built.
+          # The 'source_image' field specifies the URL of the OS or
+          # installation media image from which the boot disk for each
+          # Virtual Node of this class should be built.
           source_image: "http://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img"
+          # Media type specifies what the medium of the boot disk is at
+          # download and installation time. Supported media types at the
+          # moment are qcow2 and iso. For a qcow2 image, the disk is
+          # presumed to be installable simply by constructing a Virtual
+          # Node disk image using qemu-img and customizing it using
+          # virt-customize. For an iso image, the image needs to be
+          # booted into a VM and then the resulting disk image (now a
+          # qcow2 image) can be customized.
+          #
+          # The image type interacts with distro.style because, while
+          # Ubuntu and other Debian style distros seem to be available
+          # as live qcow2 images, RedHat style seem to be available only
+          # as iso installation images that need to be booted into and
+          # (generally) installed using kickstart. For RedHat images,
+          # then, the customization is done using and no virt-customize
+          # steps are used. For Ubuntu, if the image is an iso image, it
+          # will be booted to get the qcow, then customized using
+          # virt-customize.
+          media_type: qcow2
           # The 'disk_size_mb' field specifies the size in megabytes
           # (MB -- multiples of 1,000,000 bytes) of the disk and file
           # system to be created from the source image.
@@ -285,6 +301,10 @@ cluster:
             # initialized. If this is null or not provided, the disk
             # will be an empty disk.
             source_image: null
+            # Media type specifies what medium the disk image
+            # is. For non-boot disks, the only medium that is currently
+            # supported is qcow2.
+            media_type: qcow2
             # The 'disk_size_mb' field specifies the size in megabytes
             # (MB -- multiples of 1,000,000 bytes) of the disk.
             disk_size_mb: 100000 # 100GB
@@ -431,9 +451,10 @@ cluster:
       # Rocky Linux (which is RedHat based)
       parent_class: ubuntu_24_04_node
       distro:
-        pkg_mgmt: redhat
-        net_mgmt: network_manager
+        style: RedHat
       virtual_machine:
         boot_disk:
           # The distro is Rocky, so use that instead of Ubuntu.
-          source_image: https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2
+          source_image:
+            https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2
+          media_type: iso

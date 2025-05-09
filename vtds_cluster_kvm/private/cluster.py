@@ -44,6 +44,7 @@ from vtds_base.layers.cluster import (
 from . import (
     DEPLOY_SCRIPT_PATH,
     DEPLOY_SCRIPT_NAME,
+    CLUSTER_SCRIPT_LIBS,
     VM_XML_PATH
 )
 from .common import Common
@@ -554,7 +555,6 @@ class Cluster(ClusterAPI):
             if not network.get('delete', False)
         }
         self.config = updated_config
-        return
 
     def prepare(self):
         blade_config = self.config
@@ -609,6 +609,10 @@ class Cluster(ClusterAPI):
                     DEPLOY_SCRIPT_PATH, DEPLOY_SCRIPT_NAME
                 )
             )
+            for (source, dest, name) in CLUSTER_SCRIPT_LIBS:
+                connections.copy_to(
+                    source, dest, False, "upload-%s-library-to" % name
+                )
             connections.copy_to(
                 DEPLOY_SCRIPT_PATH, "/root/%s" % DEPLOY_SCRIPT_NAME,
                 False, "upload-cluster-deploy-script-to"

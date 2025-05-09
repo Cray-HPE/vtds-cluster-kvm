@@ -56,13 +56,13 @@
     <emulator>/usr/bin/qemu-system-x86_64</emulator>
     <disk type="file" device="disk">
       <driver name="qemu" type="qcow2"/>
-      <source file="{{ boot_disk.file_name }}"/>
+      <source file="{{ boot_disk.file_path }}"/>
       <target dev="{{ boot_disk.target_device }}" bus="virtio"/>
     </disk>
     {% for extra_disk in extra_disks %}
     <disk type="file" device="disk">
       <driver name="qemu" type="qcow2"/>
-      <source file="{{ extra_disk.file_name }}"/>
+      <source file="{{ extra_disk.file_path }}"/>
       <target dev="{{ extra_disk.target_device }}" bus="virtio"/>
     </disk>
     {% endfor %}
