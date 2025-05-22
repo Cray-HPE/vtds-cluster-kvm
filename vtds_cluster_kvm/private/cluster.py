@@ -402,37 +402,57 @@ class Cluster(ClusterAPI):
         ]
         return ":".join(["%2.2x" % octet for octet in mac_binary])
 
+    @staticmethod
+    def __find_address_family(addr_info, family):
+        """Return a key / value pair identifying the information for
+        the specified address family in the addr_info dictionary
+        provided.
+
+        """
+        candidates = [
+            (key, family)
+            for key, addr in addr_info.items()
+            if addr.get('family', None) == family
+        ]
+        if len(candidates) > 1:
+            raise ContextualError(
+                "address information block: %s has more than one '%s' "
+                "address block in it" % (str(addr_info), family)
+            )
+        return candidates[0] if candidates else (None, None)
+
     def __add_mac_addresses(self, node_class, prefix=None):
         """Compute MAC address for every Virtual Node interface and
-        overlay an 'addr_info.layer_2' that has AF_PACKET as its
-        address family, and a list of MAC addresses in it. If that
-        block already exists, then just make sure there are enough MAC
-        addresses in it, and supplement as needed.
+        overlay an AF_PACKET entry list with an updated list of MAC
+        addresses in it. If there is already an AF_PACKET entry block
+        present, then just make sure there are enough MAC addresses in
+        it, and supplement as needed.
 
         """
         node_count = int(node_class.get('node_count', 0))
         interfaces = node_class.get('network_interfaces', {})
-        for key, interface in interfaces.items():
+        for if_key, interface in interfaces.items():
             addr_info = interface.get('addr_info', {})
-            layer_2 = addr_info.get(
-                "layer_2",
-                {
+            af_key, addr = self.__find_address_family(addr_info, 'AF_PACKET')
+            if af_key is None:
+                af_key = 'layer_2'
+            if addr is None:
+                addr = {
                     'family': 'AF_PACKET',
                     'addresses': [],
                 }
-            )
-            existing_macs = layer_2.get('addresses', [])[0:node_count]
+            existing_macs = addr.get('addresses', [])[0:node_count]
             existing_count = len(existing_macs)
-            layer_2['addresses'] = existing_macs + [
+            addr['addresses'] = existing_macs + [
                 self.__random_mac(prefix)
                 for i in range(0, node_count - existing_count)
             ]
-            addr_info['layer_2'] = layer_2
+            addr_info[af_key] = addr
             interface['addr_info'] = addr_info
             # While there is no reason to believe that adjusting 'interface'
             # made it into a new object, it doesn't hurt to be explicit here
             # and put the modified 'interface' back into interfaces.
-            interfaces[key] = interface
+            interfaces[if_key] = interface
 
     def __add_xml_template(self, node_class):
         """Add the contents of the libvirt XML template for

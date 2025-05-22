@@ -1,7 +1,7 @@
 #
 # MIT License
 #
-# (C) Copyright [2024] Hewlett Packard Enterprise Development LP
+# (C) Copyright 2025 Hewlett Packard Enterprise Development LP
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -878,7 +878,7 @@ class Addressing(AddressingBase):
             family['family']: [
                 family['addresses'].pop(0)
                 if instance in self.connected_instances else None
-                for instance in range(0, top_instance)
+                for instance in range(0, top_instance + 1)
             ]
             for family in address_families
             if 'family' in family and 'addresses' in family
