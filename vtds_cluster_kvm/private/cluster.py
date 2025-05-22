@@ -413,7 +413,8 @@ class Cluster(ClusterAPI):
         node_count = int(node_class.get('node_count', 0))
         interfaces = node_class.get('network_interfaces', {})
         for key, interface in interfaces.items():
-            layer_2 = interface.get(
+            addr_info = interface.get('addr_info', {})
+            layer_2 = addr_info.get(
                 "layer_2",
                 {
                     'family': 'AF_PACKET',
@@ -426,11 +427,11 @@ class Cluster(ClusterAPI):
                 self.__random_mac(prefix)
                 for i in range(0, node_count - existing_count)
             ]
-            interface['addr_info'] = (
-                interface['addr_info'] if 'addr_info' in interface else
-                {}
-            )
-            interface['addr_info']['layer_2'] = layer_2
+            addr_info['layer_2'] = layer_2
+            interface['addr_info'] = addr_info
+            # While there is no reason to believe that adjusting 'interface'
+            # made it into a new object, it doesn't hurt to be explicit here
+            # and put the modified 'interface' back into interfaces.
             interfaces[key] = interface
 
     def __add_xml_template(self, node_class):
