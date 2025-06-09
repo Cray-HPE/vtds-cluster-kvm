@@ -39,7 +39,7 @@ cluster:
     # This is not a cluster network (i.e. it should not be used by
     # applications running on the cluster for anything). It is here to
     # aid in setting up the cluster during deployment.
-    non_cluster: True
+    non_cluster: true
     # Do not set 'delete' to true here or in an overlay. This network
     # must be defined or the Cluster layer APIs that support
     # deployment at the Application layer will not all work correctly.

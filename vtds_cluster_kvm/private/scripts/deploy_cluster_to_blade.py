@@ -440,6 +440,29 @@ class VirtualNode:
         ]
         return candidates[0] if candidates else None
 
+    def __add_etc_hosts_entry(self):
+        """Add an entry for this node to /etc/hosts on the host blade.
+
+        """
+        host_blade_ip = self.__host_blade_ipv4()
+        hostname = self.hostname
+        # Get the current contents of '/etc/hosts'
+        with open('/etc/hosts', mode='r', encoding='UTF-8') as hosts:
+            hosts_lines = hosts.readlines()
+        comment = " # added by vTDS deploy"
+        # Build a new array of host lines, removing references to this
+        # host that were added by vTDS deploy
+        hosts_lines = [
+            host_line
+            for host_line in hosts_lines
+            if hostname not in host_line or comment not in host_line
+        ]
+        spaces = " " * (16 - len(host_blade_ip))
+        entry = host_blade_ip + spaces + hostname + comment + '\n'
+        hosts_lines += [entry]
+        with open("/etc/hosts", mode='w', encoding="UTF-8") as hosts:
+            hosts.writelines(hosts_lines)
+
     def wait_for_ssh(self):
         """Wait for the node to be up and listening on the SSH port
         (port 22). This is a good indication that the node has fully
@@ -503,6 +526,7 @@ class VirtualNode:
 
         """
         self.node_builder.build()
+        self.__add_etc_hosts_entry()
 
     def stop(self):
         """Stop but do not undefine the Virtual Node.
