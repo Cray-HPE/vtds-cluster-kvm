@@ -1,7 +1,7 @@
 #
 # MIT License
 #
-# (C) Copyright [2024] Hewlett Packard Enterprise Development LP
+# (C) Copyright 2024-2025 Hewlett Packard Enterprise Development LP
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -284,7 +284,7 @@ class Common:
             # Don't massage pure base classes...
             return
         naming = self.__host_naming(node_class, nclass)
-        names = naming['hostnames']
+        names = naming.get('hostnames', [])
         node_count = self.node_count(node_class)
         needed = node_count - len(names) if len(names) < node_count else 0
         names += [None] * needed
