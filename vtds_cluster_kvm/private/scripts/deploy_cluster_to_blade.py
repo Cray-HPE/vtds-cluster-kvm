@@ -44,6 +44,7 @@ from subprocess import (
 from tempfile import (
     NamedTemporaryFile
 )
+from threading import Thread
 from uuid import uuid4
 from time import sleep
 import json
@@ -842,9 +843,20 @@ def main(argv):
     # currently deployed.
     for node in nodes:
         node.remove()
-    # Now create all the Virtual Nodes in the list
-    for node in nodes:
-        node.create()
+    # Now create all the Virtual Nodes in the list. Do this in threads
+    # to allow the creations to run in parallel.
+    threads = [
+        Thread(target=node.create, args=())
+        for node in nodes
+    ]
+    # Start the threads
+    for thread in threads:
+        thread.start()
+
+    # Wait for the threads to complete
+    for thread in threads:
+        thread.join()
+
     # Now wait for the Virtual Nodes to be up and running (listening
     # on the SSH port)
     for node in nodes:

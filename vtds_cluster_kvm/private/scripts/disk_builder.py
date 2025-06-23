@@ -48,6 +48,7 @@ from tempfile import (
     mkdtemp
 )
 from time import sleep
+from threading import Lock
 import yaml
 
 from cluster_common import (
@@ -73,6 +74,8 @@ class DiskBuilder(metaclass=ABCMeta):
     """Base class for Disk Builder classes
 
     """
+    image_lock = Lock()
+
     def __init__(self, config, node_class, node_instance, root_passwd):
         """Constructor
 
@@ -105,8 +108,8 @@ class DiskBuilder(metaclass=ABCMeta):
             ) from err
         self.boot_disk_path = path_join(self.host_dir, "boot_disk.img")
 
-    @staticmethod
-    def _retrieve_image(url, dest):
+    @classmethod
+    def _retrieve_image(cls, url, dest):
         """Retrieve a disk image from a URL ('url') and write it the
         file named in 'dest'.
 
@@ -119,23 +122,28 @@ class DiskBuilder(metaclass=ABCMeta):
         dest = dest.strip()
         url = url.strip()
         retry = 0
-        while not exists(dest):
-            try:
-                run_cmd('curl', ['-o', dest, '-s', url])
-            except Exception as err:
-                if exists(dest):
-                    remove_file(dest)
-                # This does not always work on the first try...
-                retry += 1
-                if retry < 20:
-                    info_msg(
-                        "retrieving '%s' failed, retrying [%d]..." % (
-                            url, retry,
+        # Hold a lock over this activity since we want to do it
+        # exactly one for each node class, and it can be
+        # multi-threaded
+        with cls.image_lock:
+            info_msg("retrieving disk image '%s' as '%s'" % (url, dest))
+            while not exists(dest):
+                try:
+                    run_cmd('curl', ['-o', dest, '-s', url])
+                except Exception as err:
+                    if exists(dest):
+                        remove_file(dest)
+                    # This does not always work on the first try...
+                    retry += 1
+                    if retry < 20:
+                        info_msg(
+                            "retrieving '%s' failed, retrying [%d]..." % (
+                                url, retry,
+                            )
                         )
-                    )
-                    sleep(30)
-                    continue
-                raise err
+                        sleep(30)
+                        continue
+                    raise err
 
     def _make_extra_disks(self):
         """Create all of the extra disk images for this Virtual Node
