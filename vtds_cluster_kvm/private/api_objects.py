@@ -24,6 +24,7 @@
 and operations in the provider layer.
 
 """
+from copy import deepcopy
 from subprocess import (
     Popen,
     TimeoutExpired
@@ -863,15 +864,15 @@ class Addressing(AddressingBase):
     def __init__(self, connected_instances, address_families):
         """Constructor
         """
-        self.connected_instances = connected_instances.copy()
+        self.connected_instances = deepcopy(connected_instances)
         # Our local address_families contains, for each address
         # family, an expanded list of addresses indexed by instance
         # number. The incoming address_families contains a compressed
         # list of addresses that lines up with the list of instances
         # in the object. Expand the list here, filling in None for any
         # instance numbers that are not in the list of instances.
-        tmp = self.connected_instances.copy()
-        address_families = address_families.copy()  # So we can muck with it...
+        tmp = deepcopy(self.connected_instances)
+        address_families = deepcopy(address_families)  # So we can mess with it
         tmp.sort()  # So the highest numbered instance is in [-1]
         top_instance = tmp[-1]
         self.families = {
@@ -901,4 +902,4 @@ class Addressing(AddressingBase):
         ]
 
     def instances(self):
-        return self.connected_instances.copy()
+        return deepcopy(self.connected_instances)
