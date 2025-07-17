@@ -158,8 +158,8 @@ cluster:
               # Each connected blade instance is assigned an IP
               # address on the Virtual Network using the following
               # list of blade IPs matched one-to-one with blade
-              # instances. If either list runs out early, no IP
-              # address is assigned to remaining blade instances..
+              # instances. If this list runs out early, no IP
+              # address is assigned to remaining blade instances.
               addresses:
                 - 10.254.0.1
               # If this blade class provides a DHCP server on this

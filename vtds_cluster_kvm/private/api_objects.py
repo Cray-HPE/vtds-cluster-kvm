@@ -238,31 +238,70 @@ class VirtualNetworks(VirtualNetworksBase):
         network = self.__network_by_name(network_name)
         return network.get('non_cluster', False)
 
+    @staticmethod
+    def __is_connected_to_blades(address_family, blade_class):
+        """Look through the connected blades in the supplied network
+        address family structure and see if any of them are the
+        specified blade class.
+
+        """
+        blades = [
+            connected_blade
+            for connected_blade in address_family.get('connected_blades', [])
+            if connected_blade.get('blade_class', None) == blade_class
+        ]
+        return bool(blades)
+
     def blade_class_addressing(self, blade_class, network_name):
         network = self.__network_by_name(network_name)
-        candidates = [
-            candidate.get('blade_instances', [])
-            for candidate in network.get('connected_blades', [])
-            if candidate.get('blade_class', None) == blade_class
-        ]
-        if len(candidates > 1):
-            raise ContextualError(
-                "the vTDS cluster network '%s' configuration is populated "
-                "with more than one list of connected blades for blade "
-                "class '%s'" % (
-                    network_name, blade_class
-                )
-            )
-        connected_instances = candidates[0] if len(candidates) > 0 else []
+        # We are going to compose a list of address families attached
+        # to the specified network that has two fields, 'family' which
+        # names the address family, and 'addresses' which lists the
+        # addresses within that family that correspond to the named
+        # blade_class as connected instances. First get the address
+        # families from the network that have the blade class
+        # connected to them.
+        connected_address_families = {
+            family: address_family
+            for family, address_family in network.get(
+                    'address_families', {}
+            ).items()
+            if self.__is_connected_to_blades(address_family, blade_class)
+        }
         address_families = [
             {
-                'family': family['family'],
-                'addresses': family['addresses']
+                'family': address_family['family'],
+                'addresses': [
+                    address
+                    for connected_blade in address_family.get(
+                            'connected_blades', []
+                    )
+                    if connected_blade.get('blade_class', None) == blade_class
+                    for address in connected_blade.get(
+                        'addresses', []
+                    )
+                ]
             }
-            for family in network.get('address_families', [])
-            if 'family' in family and 'addresses' in family
+            for address_family in connected_address_families.values()
+            if 'family' in address_family
         ]
-        return Addressing(connected_instances, address_families)
+        # While there might not be addresses in every address family
+        # for every connected instance -- in other words, not every
+        # instance is required to be connected to every address family
+        # -- the overall list of connected blade instances encompasses
+        # the longest list of addresses found. Count the available
+        # addresses in each family and find the longest one by
+        # sorting, then pass in the list containing the enumeration of
+        # every instance in that list when creating the Addressing
+        # object.
+        addresses_lengths = [
+            len(connected_blade.get('addresses', []))
+            for address_family in connected_address_families.values()
+            for connected_blade in address_family['connected_blades']
+            if connected_blade.get('blade_class', None) == blade_class
+        ]
+        count = sorted(addresses_lengths)[-1] if addresses_lengths else 0
+        return Addressing(list(range(0, count)), address_families)
 
 
 # pylint: disable=too-many-instance-attributes
@@ -867,8 +906,8 @@ class Addressing(AddressingBase):
         self.connected_instances = deepcopy(connected_instances)
         # Our local address_families contains, for each address
         # family, an expanded list of addresses indexed by instance
-        # number. The incoming address_families contains a compressed
-        # list of addresses that lines up with the list of instances
+        # number. The incoming address_families may contain a compressed
+        # list of addresses that line up with the list of instances
         # in the object. Expand the list here, filling in None for any
         # instance numbers that are not in the list of instances.
         tmp = deepcopy(self.connected_instances)
