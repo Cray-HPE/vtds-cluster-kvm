@@ -58,7 +58,7 @@ build = [
     'build~=1.2.2'
 ]
 ci = [
-    'nox~=2023.4.22',
+    'nox>=2023.4.22,<2025.6.0',
 ]
 docs = [
 ]
@@ -66,11 +66,11 @@ style = [
     'pycodestyle~=2.11',
 ]
 lint = [
-    'pylint~=2.15',
+    'pylint>=2.15,<4.0',
 ]
 test = [
-    'pytest~=7.3.1',
-    'pytest-cov~=4.1',
+    'pytest>=7.3.1,<8.5.0',
+    'pytest-cov>=4.1,<7.0',
     'coverage~=7.4',
 ]
 
@@ -87,7 +87,7 @@ exclude = ['vtds_cluster_kvm.tests*']
 [build-system]
 build-backend = 'setuptools.build_meta'
 requires = [
-    'setuptools ~= 66.0',
+    'setuptools >= 66,< 81',
     'setuptools_scm[toml] ~= 7.1.0',
     'wheel ~= 0.38.4',
 ]
