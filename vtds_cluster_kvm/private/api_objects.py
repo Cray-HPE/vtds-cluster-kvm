@@ -914,10 +914,18 @@ class Addressing(AddressingBase):
         address_families = deepcopy(address_families)  # So we can mess with it
         tmp.sort()  # So the highest numbered instance is in [-1]
         top_instance = tmp[-1]
+        # For each address family provided, fill out the addresses
+        # list with the address corresponding to the instance of the
+        # instance is connected and there is an address for that
+        # instance in that address family. Otherwise fill in None for
+        # that instance. This gives us a dictionary of family to
+        # address list mappings that has the same number of elements
+        # (some filled with None) for each family.
         self.families = {
             family['family']: [
                 family['addresses'].pop(0)
-                if instance in self.connected_instances else None
+                if instance in self.connected_instances and family['addresses']
+                else None
                 for instance in range(0, top_instance + 1)
             ]
             for family in address_families
