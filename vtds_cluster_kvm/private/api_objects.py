@@ -935,7 +935,7 @@ class Addressing(AddressingBase):
     def address(self, family, instance):
         return (
             self.addresses(family)[instance]
-            if instance in self.connected_instances
+            if instance in self.connected_instances and family in self.families
             else None
         )
 
