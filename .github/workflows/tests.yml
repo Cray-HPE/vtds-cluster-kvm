@@ -41,11 +41,8 @@ jobs:
       with:
         python-version: ${{ matrix.version }}
     - name: nox
-      env:
-        ARTIFACTORY_USERNAME: ${{ secrets.ARTIFACTORY_ALGOL60_READONLY_USERNAME }}
-        ARTIFACTORY_PASSWORD: ${{ secrets.ARTIFACTORY_ALGOL60_READONLY_TOKEN }}
       run: |
         ./runPrep.sh
-        pip install --extra-index-url=https://artifactory.algol60.net/artifactory/csm-python-modules/simple .[ci]
-        pip install --extra-index-url=https://artifactory.algol60.net/artifactory/csm-python-modules/simple .[test]
+        pip install .[ci]
+        pip install .[test]
         nox -e tests
