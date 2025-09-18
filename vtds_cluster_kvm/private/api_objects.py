@@ -913,7 +913,10 @@ class Addressing(AddressingBase):
         tmp = deepcopy(self.connected_instances)
         address_families = deepcopy(address_families)  # So we can mess with it
         tmp.sort()  # So the highest numbered instance is in [-1]
-        top_instance = tmp[-1]
+        # Grab the highest numbered instance if there are any
+        # connected instances. If not, then take -1 which will force
+        # the loop below to terminate without iterating.
+        top_instance = tmp[-1] if tmp else -1
         # For each address family provided, fill out the addresses
         # list with the address corresponding to the instance of the
         # instance is connected and there is an address for that
