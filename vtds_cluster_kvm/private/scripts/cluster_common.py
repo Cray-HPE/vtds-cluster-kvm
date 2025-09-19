@@ -310,10 +310,12 @@ def is_dhcp_server(network, blade_class, blade_instance):
 
     """
     address_family = find_address_family(network, 'AF_INET')
+    dhcp_enabled = address_family.get('dhcp', {}).get('enabled', False)
     candidates = [
         blade
         for blade in address_family.get('connected_blades', [])
-        if blade.get('blade_class', None) == blade_class and
+        if dhcp_enabled and
+        blade.get('blade_class', None) == blade_class and
         blade.get('dhcp_server_instance', None) == blade_instance
     ]
     return len(candidates) > 0
