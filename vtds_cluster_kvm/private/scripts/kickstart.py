@@ -280,7 +280,7 @@ class KickstartConfig:
 
         """
         address_family = find_address_family(network, "AF_INET")
-        nameservers = ','.join(address_family.get('nameservers', []))
+        nameservers = ','.join(address_family.get('name_servers', []))
         return (
             ("=%s" % nameservers) if nameservers else None
         )
