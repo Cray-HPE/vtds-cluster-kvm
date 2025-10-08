@@ -464,6 +464,13 @@ class VirtualNode:
         with open("/etc/hosts", mode='w', encoding="UTF-8") as hosts:
             hosts.writelines(hosts_lines)
 
+    def is_powered_on(self):
+        """Return True or False indicating whether the node builder
+        powered the node on or not upon completion of building it.
+
+        """
+        return self.node_builder.power_on()
+
     def wait_for_ssh(self):
         """Wait for the node to be up and listening on the SSH port
         (port 22). This is a good indication that the node has fully
@@ -533,6 +540,11 @@ class VirtualNode:
         """Stop but do not undefine the Virtual Node.
         """
         run_cmd('virsh', ['destroy', self.node_name], check=False)
+
+    def start(self):
+        """Start the  Virtual Node if it is defined.
+        """
+        run_cmd('virsh', ['start', self.node_name], check=False)
 
     def remove(self):
         """Stop and undefine the Virtual Node.
@@ -857,9 +869,9 @@ def main(argv):
     for thread in threads:
         thread.join()
 
-    # Now wait for the Virtual Nodes to be up and running (listening
-    # on the SSH port)
-    for node in nodes:
+    # Now wait for the powered on Virtual Nodes to be up and running
+    # (listening on the SSH port)
+    for node in [node for node in nodes if node.is_powered_on()]:
         node.wait_for_ssh()
 
 

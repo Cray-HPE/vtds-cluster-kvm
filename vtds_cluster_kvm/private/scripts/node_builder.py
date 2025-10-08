@@ -81,6 +81,7 @@ class NodeBuilder(metaclass=ABCMeta):
         self.node_name = compute_node_name(node_class, node_instance)
         self.host_name = compute_hostname(node_class, node_instance)
         self.virtual_machine = node_class.get('virtual_machine', {})
+        self.boot_info = self.virtual_machine.get('boot_info', {})
         self.disk_builder = pick_disk_builder(
             config, node_class, node_instance, root_passwd
         )
@@ -114,6 +115,13 @@ class NodeBuilder(metaclass=ABCMeta):
                 "Virtual Machine configuration for Virtual Node "
                 "class '%s': %s " % (self.class_name, str(self.node_class))
             ) from err
+
+    def power_on(self):
+        """Return True or False indicating whether the built node will
+        be powered on after the build completes or not.
+
+        """
+        return self.boot_info.get("start_on_creation", "yes") == "yes"
 
     @abstractmethod
     def build(self):
@@ -252,13 +260,16 @@ class DebianQCOWNode(NodeBuilder):
             run_cmd('virsh', ['define', tmpfile.name])
             run_cmd('virsh', ['start', self.node_name])
 
+    def power_on(self):
+        return True
+
     def build(self):
         self.__create()
 
 
-class RedHatISONode(NodeBuilder):
+class RedHatNode(NodeBuilder):
     """Node builder class for building RedHat style nodes using ISO
-    installation media.
+    installation media or network boot.
 
     """
 
@@ -270,6 +281,35 @@ class RedHatISONode(NodeBuilder):
         NodeBuilder.__init__(
             self, config, node_class, node_instance, root_passwd
         )
+
+    def __sort_net_ifs(self):
+        """Create a sorted list of network interface structures in
+        which the interfaces that can be used for booting are listed
+        first in the order specified in the network boot configuration
+        and the interfaces not used for booting are listed after that.
+
+        """
+        boot_if_names = self.boot_info.get('interfaces', [])
+        boot_ifs = []
+        try:
+            boot_ifs = [
+                self.node_class.get('network_interfaces', {})[if_name]
+                for if_name in boot_if_names
+            ]
+        except KeyError as err:
+            raise ContextualError(
+                "unknown interface named '%s' found in node class network "
+                "boot interfaces list for node class '%s'" %
+                (str(err), self.class_name)
+            ) from err
+        non_boot_ifs = [
+            interface
+            for name, interface in self.node_class.get(
+                'network_interfaces', {}
+            ).items()
+            if name not in boot_if_names
+        ]
+        return boot_ifs + non_boot_ifs
 
     def __make_net_opt(self, interface):
         """Using a network configuration for the Virtual Node, compose
@@ -286,11 +326,11 @@ class RedHatISONode(NodeBuilder):
         )
         return "--network=" + network_name + mac
 
-    def __make_virt_install_args(self, boot_disk_info, extra_disks):
-        """Compose the arguments to pass to the virt-install command
-        to install the Virtual Node.
+    def __make_boot_opts(self):
+        """Compose boot option and boot disk option for virt-install.
 
         """
+        boot_disk_info = self.disk_builder.build_boot_disk()
         # Get the boot disk size in GB from the disk size in MB,
         # defaulting to 100GB
         boot_size = str(int(
@@ -298,42 +338,91 @@ class RedHatISONode(NodeBuilder):
             .get('boot_disk', {})
             .get('disk_size_mb', '100000')
         ) / 1000)
-        base_opts = [
-            '--name', self.node_name,
-            '--wait=-1',
-            '--location', boot_disk_info['iso_path'],
+        boot_disk_opt = [
             '--disk', 'path=%s,size=%s' % (
                 boot_disk_info['file_path'], boot_size
             ),
+            '--location', boot_disk_info['iso_path'],
+            '--extra-args', 'inst.ks=cdrom:/install_files/ks.cfg',
+        ] if boot_disk_info else []
+        # The boot string contains all of the boot related
+        # parameters for the VM build, starting with the build
+        # type. If it winds up being empty, there is no --boot
+        # option generated.
+        boot_params = []
+        dev = self.boot_info.get('dev', "")
+        boot_params += ["%s" % dev] if dev else []
+        firmware = self.boot_info.get('firmware', "")
+        boot_params += ["firmware=%s" % firmware] if firmware else []
+        loader = self.boot_info.get('loader', {}).get('path', "")
+        boot_params += ["loader=%s" % loader] if loader else []
+        loader_secure = self.boot_info.get('loader', {}).get('secure', "")
+        boot_params += (
+            ["loader.secure=%s" % loader_secure] if loader_secure else []
+        )
+        loader_readonly = self.boot_info.get('loader', {}).get('readonly', "")
+        boot_params += (
+            ["loader.readonly=%s" % loader_readonly] if loader_readonly else []
+        )
+        loader_type = self.boot_info.get('loader', {}).get('type', "")
+        boot_params += (
+            ["loader.type=%s" % loader_type] if loader_type else []
+        )
+        nvram_template = self.boot_info.get('nvram', {}).get('template', "")
+        boot_params += (
+            ["nvram.template=%s" % nvram_template] if nvram_template else []
+        )
+        nvram_fmt = self.boot_info.get('nvram', {}).get('template_format', "")
+        boot_params += (
+            ["nvram.template_format=%s" % nvram_fmt] if nvram_fmt else []
+        )
+        boot_opt = ["--boot", ','.join(boot_params)] if boot_params else []
+        return boot_disk_opt + boot_opt
+
+    def __make_virt_install_args(self):
+        """Compose the arguments to pass to the virt-install command
+        to install the Virtual Node.
+
+        """
+        boot_opts = self.__make_boot_opts()
+        base_opts = [
+            '--name', self.node_name,
+            '--wait=-1',
             '--os-variant', 'rocky8',
             '--ram', str(self.virtual_machine.get('memory_size_mib', '4096')),
             '--vcpus', str(self.virtual_machine.get('cpu_count', '1')),
             '--graphics', 'none',
             '--console', 'pty,target_type=virtio',
             '--noautoconsole',
-            '--extra-args', 'inst.ks=cdrom:/install_files/ks.cfg'
         ]
+
         extra_disk_opts = [
             '--disk=path=%s' % disk_info['file_path']
-            for disk_info in extra_disks
+            for disk_info in self.disk_builder.build_extra_disks()
         ]
+        network_interfaces = self.__sort_net_ifs()
         net_opts = [
             self.__make_net_opt(interface)
-            for _, interface in self.node_class.get(
-                'network_interfaces', {}
-            ).items()
+            for interface in network_interfaces
         ]
+        gen_xml = self.boot_info.get("start_on_creation", "yes") == "no"
+        gen_xml_opts = ["--print-xml", "1"] if gen_xml else []
         return (
             base_opts +
+            boot_opts +
             extra_disk_opts +
-            net_opts
+            net_opts +
+            gen_xml_opts
         )
 
     def build(self):
-        boot_disk_info = self.disk_builder.build_boot_disk()
-        extra_disks = self.disk_builder.build_extra_disks()
-        inst_args = self.__make_virt_install_args(boot_disk_info, extra_disks)
-        run_cmd('virt-install', inst_args)
+        inst_args = self.__make_virt_install_args()
+        if self.boot_info.get("start_on_creation", "yes") == "no":
+            with NamedTemporaryFile(mode='w', encoding='UTF-8') as tmpfile:
+                run_cmd('virt-install', inst_args, stdout=tmpfile)
+                run_cmd('virsh', ['define', tmpfile.name])
+        else:
+            run_cmd('virt-install', inst_args)
 
 
 def pick_node_builder(config, node_class, node_instance, root_passwd):
@@ -345,7 +434,8 @@ def pick_node_builder(config, node_class, node_instance, root_passwd):
     """
     node_builders = {
         ("Debian", "qcow2"): DebianQCOWNode,
-        ("RedHat", "iso"): RedHatISONode,
+        ("RedHat", "iso"): RedHatNode,
+        ("RedHat", None): RedHatNode,
     }
     # Figure out what node builder to use and get one...
     distro_family = node_class.get('distro', {}).get('family', "Debian")

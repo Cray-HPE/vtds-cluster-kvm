@@ -100,15 +100,18 @@ def info_msg(msg):
     write_err("INFO: %s\n" % msg)
 
 
-def run_cmd(cmd, args, stdin=sys.stdin, check=True, timeout=None):
-    """Run a command with output on stdout and errors on stderr
+def run_cmd(cmd, args,
+            stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr,
+            check=True, timeout=None):
+    """Run a command with output on stdout and errors on stderr by
+    default, or redirected as the caller requests.
 
     """
     exitval = 0
     try:
         with Popen(
                 [cmd, *args],
-                stdin=stdin, stdout=sys.stdout, stderr=sys.stderr
+                stdin=stdin, stdout=stdout, stderr=stderr
         ) as command:
             time = 0
             signaled = False
