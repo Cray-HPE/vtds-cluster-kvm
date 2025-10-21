@@ -551,7 +551,7 @@ class VirtualNode:
 
         """
         self.stop()
-        run_cmd('virsh', ['undefine', self.node_name], check=False)
+        run_cmd('virsh', ['undefine', '--nvram', self.node_name], check=False)
 
 
 class KeaDHCP4:
@@ -861,9 +861,10 @@ def main(argv):
         Thread(target=node.create, args=())
         for node in nodes
     ]
-    # Start the threads
+    # Start the threads. Stagger them by a few seconds to avoid races.
     for thread in threads:
         thread.start()
+        sleep(3)
 
     # Wait for the threads to complete
     for thread in threads:

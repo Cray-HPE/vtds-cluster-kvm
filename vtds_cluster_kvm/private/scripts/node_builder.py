@@ -392,7 +392,7 @@ class RedHatNode(NodeBuilder):
             '--ram', str(self.virtual_machine.get('memory_size_mib', '4096')),
             '--vcpus', str(self.virtual_machine.get('cpu_count', '1')),
             '--graphics', 'none',
-            '--console', 'pty,target_type=virtio',
+            '--console', 'pty,target_type=serial',
             '--noautoconsole',
         ]
 
