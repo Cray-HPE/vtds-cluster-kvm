@@ -247,6 +247,46 @@ cluster:
         # (MiB - multiples of 1024*1024 bytes) of the Virtual Node
         # memory.
         memory_size_mib: 4192
+        # The 'boot_info' block contains information about booting the
+        # VM. This virtual machine class sets up for a standard boot
+        # from a hard disk image. See 'ubuntu_net_boot' below for a more
+        # fully featured example.
+        boot_info:
+          # Firmware optionally tells KVM what kind of firmware to use
+          # (if any) for a BIOS boot. You can also specify 'loader'
+          # information for finer grained control of BIOS settings,
+          # or leave both empty to use the KVM default boot mechanism.
+          firmware: ""
+          # Loader
+          loader: {}
+          # For loaders that require NVRAM the nvram block sets up the
+          # appropriate information.
+          nvram: {}
+          # Boot from disk (see boot_disk below) by default. Options are:
+          # - hd (disk)
+          # - fd (floppy)
+          # - cdrom
+          # - network
+          dev: hd
+          # Interfaces lists the names of network interfaces on which to
+          # try to boot, in the order they are to be used.
+          interfaces: []
+          # Bootmenu specifies whether to put up a boot menu
+          # (interactive booting) or not and what timeout in miliseconds
+          # to use on the boot menu. Since booting is generally done
+          # non-interactively, this defaults to disabled, but it can be
+          # set for debugging purposes. The default value makes it
+          # wait for one minute (range 0 - 65535 milliseconds) before
+          # booting.
+          boot_menu:
+            enabled: 'no'
+            timeout: '60000'
+          # The start_on_creation flag tells the cluster whether to
+          # start the node running during cluster creation or let the
+          # application take care of it at an appropriate time. Disk
+          # booted nodes are probably part of the application
+          # infrastructure so default to yes.
+          start_on_creation: "yes"
         # The 'boot_disk' block describes the characteristics of the
         # boot disk, including the OS image it should be created from.
         boot_disk:
@@ -463,6 +503,49 @@ cluster:
       # caution because it has the power to entangle a given vTDS stack
       # and make it non-portable.
       application_metadata: {}
+    ubuntu_net_boot:
+      pure_base_class: true
+      # Use the ubuntu_24_04_node class as a base class and tweak it for
+      # network booting
+      parent_class: ubuntu_24_04_node
+      virtual_machine:
+        boot_info:
+          # Firmware optionally tells KVM what kind of firmware to use
+          # (if any) for a BIOS boot. You can also specify 'loader'
+          # information for finer grained control of BIOS settings,
+          # or leave both empty to use the KVM default boot mechanism.
+          firmware: ""
+          # Loader
+          loader:
+            path: /usr/share/OVMF/OVMF_CODE.secboot.fd
+            readonly: "yes"
+            secure: "no"
+            type: pflash
+          # For loaders that require NVRAM the nvram block sets up the
+          # appropriate information.
+          nvram:
+            template: /usr/share/OVMF/OVMF_VARS.fd
+            template_format: ""
+          # Boot from network
+          dev: network
+          # Interfaces lists the names of network interfaces on which to
+          # try to boot, in the order they are to be used.
+          interfaces:
+            - my_network
+          # The start_on_creation flag tells the cluster whether to
+          # start the node running during cluster creation or let the
+          # application take care of it at an appropriate time. For
+          # net-booting the assumption is that the application will
+          # provide the net-boot infrastructure, so we don't need / want
+          # to start the node on creation of the cluster. Default to 'no'.
+          start_on_creation: "no"
+        # The 'boot_disk' block describes the characteristics of the
+        # boot disk, including the OS image it should be created
+        # from. In this case, there is no boot disk specified, so there
+        # is no block here.
+        boot_disk:
+          __replace_dict:
+            media_type: null
     rocky_linux_node:
       pure_base_class: true
       # Use the ubuntu_24_04_node class as a base class and tweak it for
@@ -486,3 +569,8 @@ cluster:
             # SHA256.
             algorithm: SHA256
           media_type: iso
+    rocky_net_boot:
+      pure_base_class: true
+      parent_class: ubuntu_net_boot
+      distro:
+        family: RedHat

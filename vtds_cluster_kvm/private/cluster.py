@@ -115,7 +115,7 @@ class Cluster(ClusterAPI):
     @staticmethod
     def __clean_deleted_interfaces(node_class_config):
         """Go through the network interfaces in a node class
-        configuration and remove any that have the 'deleted' flag
+        configuration and remove any that have the 'delete' flag
         set. Return the resulting config.
 
         """

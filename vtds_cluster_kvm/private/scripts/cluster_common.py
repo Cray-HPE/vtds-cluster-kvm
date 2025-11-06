@@ -100,15 +100,18 @@ def info_msg(msg):
     write_err("INFO: %s\n" % msg)
 
 
-def run_cmd(cmd, args, stdin=sys.stdin, check=True, timeout=None):
-    """Run a command with output on stdout and errors on stderr
+def run_cmd(cmd, args,
+            stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr,
+            check=True, timeout=None):
+    """Run a command with output on stdout and errors on stderr by
+    default, or redirected as the caller requests.
 
     """
     exitval = 0
     try:
         with Popen(
                 [cmd, *args],
-                stdin=stdin, stdout=sys.stdout, stderr=sys.stderr
+                stdin=stdin, stdout=stdout, stderr=stderr
         ) as command:
             time = 0
             signaled = False
@@ -310,10 +313,12 @@ def is_dhcp_server(network, blade_class, blade_instance):
 
     """
     address_family = find_address_family(network, 'AF_INET')
+    dhcp_enabled = address_family.get('dhcp', {}).get('enabled', False)
     candidates = [
         blade
         for blade in address_family.get('connected_blades', [])
-        if blade.get('blade_class', None) == blade_class and
+        if dhcp_enabled and
+        blade.get('blade_class', None) == blade_class and
         blade.get('dhcp_server_instance', None) == blade_instance
     ]
     return len(candidates) > 0

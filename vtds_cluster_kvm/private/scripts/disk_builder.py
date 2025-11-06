@@ -94,18 +94,7 @@ class DiskBuilder(metaclass=ABCMeta):
         self.host_dir = path_join(self.nodeclass_dir, node_name)
         makedirs(self.host_dir, mode=0o755, exist_ok=True)
         virtual_machine = node_class.get('virtual_machine', {})
-        try:
-            self.disk_config = virtual_machine['boot_disk']
-        except KeyError as err:
-            raise ContextualError(
-                "configuration error: Virtual Node class '%s' "
-                "'virtual_machine' section "
-                "does not contain a 'boot_disk' "
-                "section: %s" % (
-                    self.node_class['class_name'],
-                    str(self.node_class)
-                )
-            ) from err
+        self.disk_config = virtual_machine.get('boot_disk', {})
         self.boot_disk_path = path_join(self.host_dir, "boot_disk.img")
 
     @classmethod
@@ -258,7 +247,7 @@ class DiskBuilder(metaclass=ABCMeta):
     @abstractmethod
     def build_boot_disk(self):
         """Build the boot disk for the node class this disk builder
-        builds for.
+        builds for. If no boot disk is specified, return None.
 
         """
 
@@ -406,6 +395,8 @@ class DebianQCOWDisk(DiskBuilder):
             pw_file.write("%s\n" % self.root_passwd)
 
     def build_boot_disk(self):
+        if not self.disk_config:
+            return None
         boot_image_name = self.__make_boot_disk()
         self.__configure_root_passwd()
         self.__reconfigure_ssh()
@@ -471,6 +462,8 @@ class RedHatISODisk(DiskBuilder):
         )
 
     def build_boot_disk(self):
+        if not self.disk_config:
+            return None
         # The source image will be an ISO that we need to retrieve,
         # unpack, modify (add a kickstart file and ssh public key for
         # root to use), then make into a new ISO.
@@ -519,6 +512,26 @@ class RedHatISODisk(DiskBuilder):
         }
 
 
+class RedHatNoDisk(DiskBuilder):
+    """Implementation of a disk builder for building RedHat root file
+    systems using ISO images. This will construct an image for
+    installation that has a Kickstart file in it and installs whatever
+    RedHat flavor the ISO image provides.
+
+    """
+    def __init__(self, config, node_class, node_instance, root_passwd):
+        """Constructor
+
+        """
+        self.__doc__ = DiskBuilder.__doc__
+        DiskBuilder.__init__(
+            self, config, node_class, node_instance, root_passwd
+        )
+
+    def build_boot_disk(self):
+        return None
+
+
 def pick_disk_builder(config, node_class, node_instance, root_passwd):
     """Based on the supplied node_class configuration pick the right
     DiskBuilder object type, instantiate it and return the instance
@@ -529,6 +542,7 @@ def pick_disk_builder(config, node_class, node_instance, root_passwd):
     disk_builders = {
         ("Debian", "qcow2"): DebianQCOWDisk,
         ("RedHat", "iso"): RedHatISODisk,
+        ("RedHat", None): RedHatNoDisk,
     }
     # Figure out what disk builder to use and get one...
     distro_family = node_class.get('distro', {}).get('family', "Debian")
