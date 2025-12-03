@@ -238,6 +238,10 @@ class VirtualNetworks(VirtualNetworksBase):
         network = self.__network_by_name(network_name)
         return network.get('non_cluster', False)
 
+    def blade_interconnect(self, network_name):
+        network = self.__network_by_name(network_name)
+        return network.get('blade_interconnect', None)
+
     @staticmethod
     def __is_connected_to_blades(address_family, blade_class):
         """Look through the connected blades in the supplied network
