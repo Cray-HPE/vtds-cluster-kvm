@@ -35,6 +35,7 @@ from yaml import safe_dump
 from vtds_base import (
     ContextualError,
     info_msg,
+    warning_msg,
     expand_inheritance
 )
 from vtds_base.layers.cluster import (
@@ -606,12 +607,105 @@ class Cluster(ClusterAPI):
             safe_dump(blade_config, stream=conf)
         self.prepared = True
 
+    def __validate_installer_config(self, class_name):
+        """Validate the boot disk installer configuration for a given
+        node class to make sure all the required parts are there. This
+        avoids difficult to catch threaded errors in the deployment
+        stage.
+
+        """
+        node_class = self.config['node_classes'][class_name]
+        virtual_machine = node_class.get('virtual_machine', None)
+        if virtual_machine is None:
+            raise ContextualError(
+                "node class '%s' has no 'virtual_machine' section defined "
+                "in the cluster configuration" % class_name
+            )
+        installer = virtual_machine.get('boot_disk', {}).get('installer', None)
+        if installer is None:
+            raise ContextualError(
+                "node class '%s' has no 'boot_disk.installer' "
+                "section defined in the cluster configuration" % class_name
+            )
+        style = installer.get('style', "__no_style_specified__")
+        if style not in ['kickstart', 'virt-customize', None]:
+            raise ContextualError(
+                "node class '%s' has an unrecognized boot-disk installer "
+                "style '%s' in the cluster configuration" % (
+                    class_name, style
+                )
+            )
+        if style != 'kickstart':
+            # Only kickstart style installers have additional
+            # configuration at present. Nothing more to check.
+            return
+        repos = (
+            installer.get('config', {}).get('repos', None)
+        )
+        if repos is None:
+            raise ContextualError(
+                "node class '%s' has no 'boot_disk.installer.config.repos' "
+                "section defined in the cluster configuration" % class_name
+            )
+        base = repos.get('base', {})
+        base_method = base.get('method', None)
+        if base_method is None:
+            raise ContextualError(
+                "node class '%s' 'boot_disk.installer.config.repos' section "
+                "has no 'base.method' defined in the cluster "
+                "configuration" % class_name
+            )
+        if base_method not in ['url', 'cdrom']:
+            raise ContextualError(
+                "node class '%s' 'boot_disk.installer.config.repos' section "
+                "has an unrecognized 'base.method' '%s' specified in the "
+                "cluster configuration" % (class_name, base_method)
+            )
+        if base_method == 'url' and base.get('location', None) is None:
+            raise ContextualError(
+                "node class '%s' 'boot_disk.installer.config.repos' section "
+                "has no 'base.location' defined for the 'url' method "
+                "in the cluster configuration" % class_name
+            )
+        if base_method == 'url':
+            warning_msg(
+                "node class '%s' uses the 'url' method for "
+                "base repository retrieval. This is not supported yet "
+                "as it causes conflicts within Dracut and fails to load "
+                "the repository during kickstart installation. Please "
+                "consider changing the retrieval method to 'cdrom' and using "
+                "a boot ISO image that contains distribution installation "
+                "media." % class_name
+            )
+        extra = (
+            virtual_machine
+            .get('boot_disk', {})
+            .get('installer', {})
+            .get('repos', {})
+            .get('extra', [])
+        )
+        for extra_repo in extra:
+            if extra_repo.get('name', None) is None:
+                raise ContextualError(
+                    "node class '%s' 'boot_disk.installer.config.repos' "
+                    "section has an 'extra' repo specified with no 'name' "
+                    "field in the cluster configuration" % class_name
+                )
+            if extra_repo.get('base_url', None) is None:
+                raise ContextualError(
+                    "node class '%s' 'boot_disk.installer.config.repos' "
+                    "section has an 'extra' repo specified with no 'base_url' "
+                    "field in the cluster configuration" % class_name
+                )
+
     def validate(self):
         if not self.prepared:
             raise ContextualError(
                 "cannot validate an unprepared cluster, call prepare() first"
             )
-        print("Validating vtds-cluster-kvm")
+        virtual_nodes = VirtualNodes(self.common)
+        for class_name in virtual_nodes.node_classes():
+            self.__validate_installer_config(class_name)
 
     def deploy(self):
         if not self.prepared:

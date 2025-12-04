@@ -327,6 +327,14 @@ cluster:
           # will be booted to get the qcow, then customized using
           # virt-customize.
           media_type: qcow2
+          # The 'installer' block specifies the kind of installer to be
+          # used ('virt-customize', 'kickstart', "none") and then
+          # installer specific configuration to be used in setting up
+          # for that installer. There is not currently any configuration
+          # for 'virt-customize'.
+          installer:
+            style: virt-customize
+            config: {}
           # The 'disk_size_mb' field specifies the size in megabytes
           # (MB -- multiples of 1,000,000 bytes) of the disk and file
           # system to be created from the source image.
@@ -546,6 +554,14 @@ cluster:
         boot_disk:
           __replace_dict:
             media_type: null
+            # The 'installer' block specifies the kind of installer to be
+            # used ('virt-customize', 'kickstart', "none") and then
+            # installer specific configuration to be used in setting up
+            # for that installer. There is not currently any configuration
+            # for 'none'.
+            installer:
+              style: null
+              config: {}
     rocky_linux_node:
       pure_base_class: true
       # Use the ubuntu_24_04_node class as a base class and tweak it for
@@ -555,7 +571,13 @@ cluster:
         family: RedHat
       virtual_machine:
         boot_disk:
-          # The distro is Rocky, so use that instead of Ubuntu.
+          # The distro is Rocky, so use that instead of Ubuntu. We need
+          # to use an image that is not only a boot image but contains
+          # the Rocky distribution installation media becase we cannot
+          # pull in a remote base OS installation repo over the network
+          # during Dracut in the install due to issues with network
+          # conflicts with kernel configured static addressing. This
+          # forces us to use the 'cdrom' installation method.
           source_image: https://dl.rockylinux.org/pub/rocky/9/isos/x86_64/Rocky-9-latest-x86_64-minimal.iso
           source_checksum:
             # The URL locates the file containing the checksum
@@ -569,6 +591,54 @@ cluster:
             # SHA256.
             algorithm: SHA256
           media_type: iso
+          # The 'installer' block specifies the kind of installer to be
+          # used ('virt-customize', 'kickstart', "none") and then
+          # installer specific configuration to be used in setting up
+          # for that installer. Some things can be configured for
+          # kickstart and they are described below.
+          installer:
+            style: kickstart
+            config:
+              # The 'repos' section specifies the base OS packages
+              # installation repo and any extra repos you want to be
+              # able to install packages from.
+              repos:
+                # The base section indicates the type of source and the
+                # location to be used as the source of the base OS
+                # repo. Method options are 'cdrom' and 'url' and the
+                # location specified is where kickstart will look for
+                # the source. By default, we are using the 'cdrom'
+                # method.
+                #
+                # NOTE: while 'url' should be able to be used, in
+                # practice with Rocky 9, it does not work because Dracut
+                # encounters network conflicts with static kernel
+                # addressing (i.e. interface configuration from the
+                # kernel command line) when trying to set up the
+                # networks to retrieve the repository from the URL. At
+                # present the 'url' method is not supported. The
+                # commented out example shows what it might look like
+                # if this issue is resolved.
+                base:
+                  method: cdrom
+                  # method: url
+                  # location: https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/
+
+                # The extra section specifies additional repos by name
+                # and base URL to be made available to the install. The
+                # Rocky 9 'Devel' repo is shown here as an example.
+                extra:
+                  - name: Devel
+                    base_url: https://download.rockylinux.org/pub/rocky/9/devel/x86_64/os/
+              # The packages section lists packages or package groups to
+              # be installed
+              packages:
+                - "@headless-management"
+                - "@legacy-unix"
+                - "@network-server"
+                - "@standard"
+                - "@system-tools"
+                - "kexec-tools"
     rocky_net_boot:
       pure_base_class: true
       parent_class: ubuntu_net_boot

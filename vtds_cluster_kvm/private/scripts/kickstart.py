@@ -30,6 +30,7 @@ a kickstart config for virtual nodes based on a cluster configuration.
 from ipaddress import IPv4Network
 from cluster_common import (
     ContextualError,
+    warning_msg,
     find_addr_info,
     find_address_family,
     network_bridge_name,
@@ -61,6 +62,16 @@ class KickstartConfig:
         self.host_name = (
             node_class['host_naming']['hostnames'][node_instance]
         )
+        installer = node_class['virtual_machine']['boot_disk']['installer']
+        style = installer.get('style', None)
+        if style != 'kickstart':
+            raise ContextualError(
+                "expected an installer style of 'kickstart' got '%s' "
+                "in node class '%s'" % (str(style), self.class_name)
+            )
+        # The following is safe because the config was vetted before
+        # it got to us.
+        self.ks_config = installer['config']
         self.password = password
 
     def __install_mode(self):
@@ -70,33 +81,29 @@ class KickstartConfig:
         return "text"
 
     def __repos(self):
-        """Return an array of 'repo' command strings indicating the
-        repositories to be used in the install.
+        """Return an array of command strings to pull in the
+        configured repos, including the base OS repo.
 
         """
-        # For now, there is only this one repo string...
-        #
-        # In the future, generate repo strings for any repos specified
-        # in the config.
-        return ['repo --name="minimal" --baseurl=file:///run/install/sources/mount-0000-cdrom/minimal']
+        # Get the 'repos' section of the kickstart config, and its
+        # 'base' and 'extra' sections.
+        extra = self.ks_config['repos']['extra']
+        # Now go through the extra repos and compose the 'repo'
+        # commands to load them
+        repos = [
+            'repo --name="%s" --baseurl="%s"' % (
+                repo['name'], repo['base_url']
+            )
+            for repo in extra
+        ]
+        return repos
 
     def __packages(self):
         """Return an array of package designators to be installed by
         kickstart.
 
         """
-        # For now, the following packages are hard coded and there is
-        # no way to specify them. When there is, this is the base set,
-        # others can be added to the end.
-        return [
-            "@^custom-environment",
-            "@headless-management",
-            "@legacy-unix",
-            "@network-server",
-            "@standard",
-            "@system-tools",
-            "kexec-tools",
-        ]
+        return self.ks_config.get('packages', [])
 
     def __language(self):
         """Return the language statement to be used in the kickstart
@@ -517,13 +524,28 @@ class KickstartConfig:
         ]
 
     def __install_medium(self):
-        """Return the statement indicating what installation medium to
-        use for installation.
+        """Return the correct installation medium command, either
+        'cdrom' or a composed 'url' command with the source location
+        of the repo for obtaining the base OS repo for installation.
 
         """
-        # For now, the only installation medium we will use is an ISO
-        # mounted as a cdrom, so, 'cdrom'
-        return "cdrom"
+        base = self.ks_config['repos']['base']
+        method = base['method']
+        if method == 'cdrom':
+            return 'cdrom'
+        # Method is 'url' because we validated the method and it
+        # can only be 'cdrom' or 'url'
+        warning_msg(
+            "node class '%s' uses the 'url' method for "
+            "base repository retrieval. This is not supported yet "
+            "as it causes conflicts within Dracut and fails to load "
+            "the repository during kickstart installation. Please "
+            "consider changing the retrieval method to 'cdrom' and using "
+            "a boot ISO image that contains distribution installation "
+            "media." % self.class_name
+        )
+        location = base['location']
+        return 'url --url="%s"' % location
 
     def __firstboot(self):
         """Return the 'firstboot' statement indicating whether
@@ -594,7 +616,7 @@ class KickstartConfig:
         """
         # For now this is hard-coded
         timezone = "US/Central"
-        options = "--isUtc"
+        options = "--utc"
         return "timezone %s %s" % (timezone, options)
 
     def __root_password(self):
@@ -624,21 +646,6 @@ class KickstartConfig:
         ]
         return '\n'.join(section)
 
-    def __password_policies(self):
-        """Return the list of password policy instructions for the
-        Virtual Node
-
-        """
-        # For now these are hard-coded
-        policies = {
-            'root': "--minlen=6 --minquality=1 --notstrict --nochanges --notempty",
-            'user': "--minlen=6 --minquality=1 --notstrict --nochanges --emptyok",
-            'luks': "--minlen=6 --minquality=1 --notstrict --nochanges --notempty",
-        }
-        return [
-            "pwpolicy %s %s" % (key, value) for key, value in policies.items()
-        ]
-
     def __post_install(self):
         """ Return the lines of a post-install script as an array of strings
 
@@ -665,17 +672,6 @@ class KickstartConfig:
         section = [
             "%packages " + options,
             *self.__packages(),
-            "%end"
-        ]
-        return '\n'.join(section)
-
-    def __sect_anaconda(self, options=""):
-        """Compose the %anaconda section and return it as a string.
-
-        """
-        section = [
-            "%anaconda " + options,
-            *self.__password_policies(),
             "%end"
         ]
         return '\n'.join(section)
@@ -723,7 +719,6 @@ class KickstartConfig:
                 self.__timezone(),
                 self.__root_password(),
                 self.__kdump_enable(),
-                self.__sect_anaconda(),
                 self.__sect_post(),
                 self.__sect_onerr(),
                 "",
