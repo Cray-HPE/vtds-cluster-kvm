@@ -343,7 +343,8 @@ class RedHatNode(NodeBuilder):
                 boot_disk_info['file_path'], boot_size
             ),
             '--location', boot_disk_info['iso_path'],
-            '--extra-args', 'inst.ks=cdrom:/install_files/ks.cfg',
+            '--extra-args',
+            'inst.ks=cdrom:/install_files/ks.cfg console=ttyS0,115200n8',
         ] if boot_disk_info else []
         # The boot string contains all of the boot related
         # parameters for the VM build, starting with the build
