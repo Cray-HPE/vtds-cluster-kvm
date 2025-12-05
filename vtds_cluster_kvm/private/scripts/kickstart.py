@@ -30,6 +30,7 @@ a kickstart config for virtual nodes based on a cluster configuration.
 from ipaddress import IPv4Network
 from cluster_common import (
     ContextualError,
+    warning_msg,
     find_addr_info,
     find_address_family,
     network_bridge_name,
@@ -65,15 +66,12 @@ class KickstartConfig:
         style = installer.get('style', None)
         if style != 'kickstart':
             raise ContextualError(
-                "expected an installed style of 'kickstart' got '%s' "
+                "expected an installer style of 'kickstart' got '%s' "
                 "in node class '%s'" % (str(style), self.class_name)
             )
-        self.ks_config = installer.get('config', None)
-        if not self.ks_config:
-            raise ContextualError(
-                "missing or empty kickstart configuration in "
-                "node class '%s'" % self.class_name
-            )
+        # The following is safe because the config was vetted before
+        # it got to us.
+        self.ks_config = installer['config']
         self.password = password
 
     def __install_mode(self):
@@ -89,64 +87,16 @@ class KickstartConfig:
         """
         # Get the 'repos' section of the kickstart config, and its
         # 'base' and 'extra' sections.
-        repos = self.ks_config.get('repos', None)
-        if not repos:
-            raise ContextualError(
-                "the kickstart installer section of the "
-                "configuration for node class '%s' has "
-                "a missing or empty 'repos' section"
-            )
-        base = repos.get('base', None)
-        if not base:
-            raise ContextualError(
-                "the kickstart installer 'repos' section "
-                "of the configuration for node class "
-                "'%s' has a missing or empty 'base' section"
-            )
-        extra = repos.get('extra', [])
-        # First, figure out the base OS repo command to use based on
-        # the method specified. For that we need the location and the
-        # method.
-        location = base.get('location', None)
-        if location is None:
-            raise ContextualError(
-                "no location specified for base OS repo "
-                "configuration in node class "
-                "'%s'" % self.class_name
-            )
-        name = base.get('name', 'minimal')
-        method = base.get('method', "unspecified")
-        if method == 'cdrom':
-            base_repo = [
-                'repo --name="%s" --baseurl="%s"' % (
-                    name, location
-                )
-            ]
-        elif method == 'url':
-            base_repo = [
-                'url --url="%s"' % location
-            ]
-        elif method is None:
-            raise ContextualError(
-                "missing 'method' in the kickstart "
-                "configuration 'base' section for node "
-                "class '%s'" % self.class_name
-            )
-        else:
-            raise ContextualError(
-                "unrecognized 'method' '%s' in the kickstart "
-                "configuration 'base' section for node "
-                "class '%s'" % (method, self.class_name)
-            )
+        extra = self.ks_config['repos']['extra']
         # Now go through the extra repos and compose the 'repo'
         # commands to load them
-        extra_repos = [
+        repos = [
             'repo --name="%s" --baseurl="%s"' % (
                 repo['name'], repo['base_url']
             )
             for repo in extra
         ]
-        return base_repo + extra_repos
+        return repos
 
     def __packages(self):
         """Return an array of package designators to be installed by
@@ -574,11 +524,28 @@ class KickstartConfig:
         ]
 
     def __install_medium(self):
-        """Return 'cdrom' to indicate that the initial installation
-        source will be the 'cdrom'.
+        """Return the correct installation medium command, either
+        'cdrom' or a composed 'url' command with the source location
+        of the repo for obtaining the base OS repo for installation.
 
         """
-        return "cdrom"
+        base = self.ks_config['repos']['base']
+        method = base['method']
+        if method == 'cdrom':
+            return 'cdrom'
+        # Method is 'url' because we validated the method and it
+        # can only be 'cdrom' or 'url'
+        warning_msg(
+            "node class '%s' uses the 'url' method for "
+            "base repository retrieval. This is not supported yet "
+            "as it causes conflicts within Dracut and fails to load "
+            "the repository during kickstart installation. Please "
+            "consider changing the retrieval method to 'cdrom' and using "
+            "a boot ISO image that contains distribution installation "
+            "media." % self.class_name
+        )
+        location = base['location']
+        return 'url --url="%s"' % location
 
     def __firstboot(self):
         """Return the 'firstboot' statement indicating whether

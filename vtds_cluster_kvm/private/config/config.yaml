@@ -554,14 +554,14 @@ cluster:
         boot_disk:
           __replace_dict:
             media_type: null
-          # The 'installer' block specifies the kind of installer to be
-          # used ('virt-customize', 'kickstart', "none") and then
-          # installer specific configuration to be used in setting up
-          # for that installer. There is not currently any configuration
-          # for 'none'.
-          installer:
-            style: none
-            config: {}
+            # The 'installer' block specifies the kind of installer to be
+            # used ('virt-customize', 'kickstart', "none") and then
+            # installer specific configuration to be used in setting up
+            # for that installer. There is not currently any configuration
+            # for 'none'.
+            installer:
+              style: null
+              config: {}
     rocky_linux_node:
       pure_base_class: true
       # Use the ubuntu_24_04_node class as a base class and tweak it for
@@ -571,7 +571,13 @@ cluster:
         family: RedHat
       virtual_machine:
         boot_disk:
-          # The distro is Rocky, so use that instead of Ubuntu.
+          # The distro is Rocky, so use that instead of Ubuntu. We need
+          # to use an image that is not only a boot image but contains
+          # the Rocky distribution installation media becase we cannot
+          # pull in a remote base OS installation repo over the network
+          # during Dracut in the install due to issues with network
+          # conflicts with kernel configured static addressing. This
+          # forces us to use the 'cdrom' installation method.
           source_image: https://dl.rockylinux.org/pub/rocky/9/isos/x86_64/Rocky-9-latest-x86_64-minimal.iso
           source_checksum:
             # The URL locates the file containing the checksum
@@ -604,10 +610,21 @@ cluster:
                 # the source. By default, we are using a 'url' and
                 # pointing to the Rocky 9 BaseOS repo for x86-64
                 # architecture.
+                #
+                # NOTE: while 'url' should be able to be used, in
+                # practice with Rocky 9, it does not work because Dracut
+                # encounters network conflicts with static kernel
+                # addressing (i.e. interface configuration from the
+                # kernel command line) when trying to set up the
+                # networks to retrieve the repository from the URL. At
+                # present the 'url' method is not supported. The
+                # commented out example shows how it might work if this
+                # problem is resolved.
                 base:
-                  method: url
-                  name: BaseOS
-                  location: https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/
+                  method: cdrom
+                  # method: url
+                  # location: https://download.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/
+
                 # The extra section specifies additional repos by name
                 # and base URL to be made available to the install. The
                 # Rocky 9 'Devel' repo is shown here as an example.

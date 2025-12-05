@@ -115,7 +115,14 @@ class DiskBuilder(metaclass=ABCMeta):
         # exactly one for each node class, and it can be
         # multi-threaded
         with cls.image_lock:
-            info_msg("retrieving disk image '%s' as '%s'" % (url, dest))
+            if not exists(dest):
+                info_msg("retrieving disk image '%s' as '%s'" % (url, dest))
+            else:
+                info_msg(
+                    "'%s' already exists, not retrieving disk image '%s'" % (
+                        dest, url
+                    )
+                )
             while not exists(dest):
                 try:
                     run_cmd('curl', ['-o', dest, '-s', url])
