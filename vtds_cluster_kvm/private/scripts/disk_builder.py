@@ -96,6 +96,9 @@ class DiskBuilder(metaclass=ABCMeta):
         virtual_machine = node_class.get('virtual_machine', {})
         self.disk_config = virtual_machine.get('boot_disk', {})
         self.boot_disk_path = path_join(self.host_dir, "boot_disk.img")
+        self.installer_config = (
+            self.disk_config.get('installer', {}).get('config', {})
+        )
 
     @classmethod
     def _retrieve_image(cls, url, dest):
@@ -115,7 +118,14 @@ class DiskBuilder(metaclass=ABCMeta):
         # exactly one for each node class, and it can be
         # multi-threaded
         with cls.image_lock:
-            info_msg("retrieving disk image '%s' as '%s'" % (url, dest))
+            if not exists(dest):
+                info_msg("retrieving disk image '%s' as '%s'" % (url, dest))
+            else:
+                info_msg(
+                    "'%s' already exists, not retrieving disk image '%s'" % (
+                        dest, url
+                    )
+                )
             while not exists(dest):
                 try:
                     run_cmd('curl', ['-o', dest, '-s', url])
@@ -505,10 +515,32 @@ class RedHatISODisk(DiskBuilder):
             if install_root:
                 rmtree(install_root)
         target_dev = self.disk_config.get('target_device', None)
+        # Determine what to use for the distribution base OS repo
+        # location based on the configured installation method.
+        install_method = (
+            self.installer_config
+                .get('repos', {})
+                .get('base', {})
+                .get('method', 'cdrom')
+        )
+        install_location = (
+            self.installer_config
+                .get('repos', {})
+                .get('base', {})
+                .get('location', None)
+        )
+        # If the install method is 'url' then the distribution base OS
+        # repo is located at a URL somewhere. Use that. Otherwise, the
+        # base OS repo is located on the boot medium, so use the ISO
+        # path instead.
+        dist_location = (
+            install_location if install_method == 'url' else self.boot_iso_path
+        )
         return {
             'file_path': self.boot_disk_path,
             'iso_path': self.boot_iso_path,
             'target_device': target_dev,
+            'dist_location': dist_location,
         }
 
 

@@ -338,12 +338,18 @@ class RedHatNode(NodeBuilder):
             .get('boot_disk', {})
             .get('disk_size_mb', '100000')
         ) / 1000)
+        boot_extra_args = [
+            'rd.shell',
+            'inst.ks=cdrom:/install_files/ks.cfg',
+            'console=ttyS0,115200n8',
+        ]
         boot_disk_opt = [
             '--disk', 'path=%s,size=%s' % (
                 boot_disk_info['file_path'], boot_size
             ),
-            '--location', boot_disk_info['iso_path'],
-            '--extra-args', 'inst.ks=cdrom:/install_files/ks.cfg',
+            '--cdrom', boot_disk_info['iso_path'],
+            '--location', boot_disk_info['dist_location'],
+            '--extra-args', ' '.join(boot_extra_args),
         ] if boot_disk_info else []
         # The boot string contains all of the boot related
         # parameters for the VM build, starting with the build
