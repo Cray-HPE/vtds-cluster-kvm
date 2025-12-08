@@ -348,7 +348,7 @@ class RedHatNode(NodeBuilder):
                 boot_disk_info['file_path'], boot_size
             ),
             '--cdrom', boot_disk_info['iso_path'],
-            '--location', boot_disk_info['iso_path'],
+            '--location', boot_disk_info['dist_location'],
             '--extra-args', ' '.join(boot_extra_args),
         ] if boot_disk_info else []
         # The boot string contains all of the boot related
