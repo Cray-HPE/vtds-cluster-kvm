@@ -88,7 +88,7 @@ exclude = ['vtds_cluster_kvm.tests*']
 [build-system]
 build-backend = 'setuptools.build_meta'
 requires = [
-    'setuptools >= 66,< 81',
+    'setuptools >= 66,< 83',
     'setuptools_scm[toml] >= 7.1,< 9.3',
     'wheel >= 0.38.4,< 0.46.0',
 ]
