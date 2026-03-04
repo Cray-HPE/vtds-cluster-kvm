@@ -1,7 +1,7 @@
 #
 # MIT License
 #
-# (C) Copyright 2025 Hewlett Packard Enterprise Development LP
+# (C) Copyright 2025-2026 Hewlett Packard Enterprise Development LP
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -25,6 +25,7 @@ and operations in the provider layer.
 
 """
 from copy import deepcopy
+from os.path import dirname
 from subprocess import (
     Popen,
     TimeoutExpired
@@ -687,6 +688,32 @@ class NodeSSHConnection(NodeSSHConnectionBase, NodeConnection):
             self.common.build_dir(),
             "%s-%s" % (logname, self.node_hostname())
         )
+        # First create the remote directory structure. This does
+        # nothing if the directory already exists.
+        remote_dir = dirname(destination)
+        if remote_dir:
+            cmd = [
+                'ssh',
+                '-i', self.private_key_path,
+                'root@%s' % self.loc_ip,
+                'mkdir', '-p', remote_dir,
+            ]
+            try:
+                self.__run(cmd, blocking, *logfiles, **kwargs)
+            except ContextualError:
+                # If it is one of ours just send it on its way to be handled
+                raise
+            except Exception as err:
+                # Not one of ours, turn it into one of ours
+                raise ContextualError(
+                    "failed to create remote directory 'root@%s:%s' "
+                    "using command: %s - %s" % (
+                        self.hostname, remote_dir, str(cmd), str(err)
+                    ),
+                    *logfiles
+                ) from err
+
+        # Now copy the file to the destination.
         recurse_option = ['-r'] if recurse else []
         cmd = [
             'scp', '-i', self.private_key_path,
