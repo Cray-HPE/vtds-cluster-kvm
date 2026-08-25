@@ -271,16 +271,17 @@ cluster:
           # Interfaces lists the names of network interfaces on which to
           # try to boot, in the order they are to be used.
           interfaces: []
-          # Bootmenu specifies whether to put up a boot menu
-          # (interactive booting) or not and what timeout in miliseconds
-          # to use on the boot menu. Since booting is generally done
-          # non-interactively, this defaults to disabled, but it can be
-          # set for debugging purposes. The default value makes it
-          # wait for one minute (range 0 - 65535 milliseconds) before
-          # booting.
+          # 'boot_menu' controls the behavior of the UEFI boot menu used
+          # if there is no boot-disk configured. By default, the boot
+          # menu will come up when the node powers on, wait for 10
+          # seconds for console input of any kind. If it does not see
+          # console input, it will drop to iPXE to try and boot the
+          # node. If iPXE fails, it will wait 1 second to time out, then
+          # drop back into the boot menu to continue the cycle. Set
+          # these timeouts (in milliseconds) to adjust that behavior.
           boot_menu:
-            enabled: 'no'
-            timeout: '60000'
+            timeout: '10000'
+            reboot_timeout: '1000'
           # The start_on_creation flag tells the cluster whether to
           # start the node running during cluster creation or let the
           # application take care of it at an appropriate time. Disk

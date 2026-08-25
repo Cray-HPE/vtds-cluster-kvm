@@ -330,6 +330,9 @@ class RedHatNode(NodeBuilder):
         """Compose boot option and boot disk option for virt-install.
 
         """
+        boot_menu = self.virtual_machine.get('boot_menu', {})
+        boot_menu_timeout = boot_menu.get('timeout', "10000")
+        reboot_timeout = boot_menu.get('reboot_timeout', "1000")
         boot_disk_info = self.disk_builder.build_boot_disk()
         # Get the boot disk size in GB from the disk size in MB,
         # defaulting to 100GB
@@ -351,6 +354,7 @@ class RedHatNode(NodeBuilder):
             '--location', boot_disk_info['dist_location'],
             '--extra-args', ' '.join(boot_extra_args),
         ] if boot_disk_info else []
+
         # The boot string contains all of the boot related
         # parameters for the VM build, starting with the build
         # type. If it winds up being empty, there is no --boot
@@ -374,6 +378,19 @@ class RedHatNode(NodeBuilder):
         boot_params += (
             ["loader.type=%s" % loader_type] if loader_type else []
         )
+        # If no boot disk is provided, the assumption is that we are
+        # going to iPXE boot this node. In that case we want to set up
+        # the node to boot using iPXE and time out the boot menu
+        # according to the configured boot timeout value. This will
+        # allow interactive access to the boot menu if the user wants
+        # it, but still allow the node to boot once boot info is
+        # available through iPXE.
+        boot_params += [
+            "uefi",
+            "bootmenu.enable=yes",
+            "bootmenu.timeout=%s" % boot_menu_timeout,
+            "bios.rebootTimeout=%s" % reboot_timeout,
+        ] if not boot_disk_info else []
         nvram_template = self.boot_info.get('nvram', {}).get('template', "")
         boot_params += (
             ["nvram.template=%s" % nvram_template] if nvram_template else []
